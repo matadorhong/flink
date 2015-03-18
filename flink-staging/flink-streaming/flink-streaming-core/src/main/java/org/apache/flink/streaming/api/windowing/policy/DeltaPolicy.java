@@ -51,7 +51,6 @@ public class DeltaPolicy<DATA> implements CloneableTriggerPolicy<DATA>,
 	private List<DATA> windowBuffer;
 	private double threshold;
 	private DATA triggerDataPoint;
-	private DATA init;
 
 	/**
 	 * Crates a delta policy which calculates a delta between the data point
@@ -76,7 +75,6 @@ public class DeltaPolicy<DATA> implements CloneableTriggerPolicy<DATA>,
 		this.triggerDataPoint = init;
 		this.windowBuffer = new LinkedList<DATA>();
 		this.threshold = threshold;
-		this.init = init;
 	}
 
 	@Override
@@ -110,27 +108,5 @@ public class DeltaPolicy<DATA> implements CloneableTriggerPolicy<DATA>,
 	@Override
 	public DeltaPolicy<DATA> clone() {
 		return new DeltaPolicy<DATA>(deltaFuntion, triggerDataPoint, threshold);
-	}
-
-	@Override
-	public boolean equals(Object other) {
-		if (other == null || !(other instanceof DeltaPolicy)) {
-			return false;
-		} else {
-			try {
-				@SuppressWarnings("unchecked")
-				DeltaPolicy<DATA> otherPolicy = (DeltaPolicy<DATA>) other;
-				return threshold == otherPolicy.threshold
-						&& deltaFuntion.getClass() == otherPolicy.deltaFuntion.getClass()
-						&& init.equals(otherPolicy.init);
-			} catch (ClassCastException e) {
-				return false;
-			}
-		}
-	}
-
-	@Override
-	public String toString() {
-		return "DeltaPolicy(" + threshold + ", " + deltaFuntion.getClass().getSimpleName() + ")";
 	}
 }

@@ -65,6 +65,10 @@ public class InstanceManagerTest{
 		try {
 			InstanceManager cm = new InstanceManager();
 			
+			// catches error that some parts assumed config values in seconds, others in
+			// milliseconds by verifying that the timeout is not larger than 2 minutes.
+			assertTrue(cm.getHeartbeatTimeout() < 2 * 60 * 1000);
+			
 			final int dataPort = 20000;
 
 			HardwareDescription hardwareDescription = HardwareDescription.extractFromSystem(4096);
@@ -72,7 +76,7 @@ public class InstanceManagerTest{
 			InetAddress address = InetAddress.getByName("127.0.0.1");
 			
 			// register three instances
-			InstanceConnectionInfo ici1 = new InstanceConnectionInfo(address, dataPort);
+			InstanceConnectionInfo ici1 = new InstanceConnectionInfo(address, dataPort + 0);
 			InstanceConnectionInfo ici2 = new InstanceConnectionInfo(address, dataPort + 15);
 			InstanceConnectionInfo ici3 = new InstanceConnectionInfo(address, dataPort + 30);
 
@@ -117,7 +121,7 @@ public class InstanceManagerTest{
 
 			HardwareDescription resources = HardwareDescription.extractFromSystem(4096);
 			InetAddress address = InetAddress.getByName("127.0.0.1");
-			InstanceConnectionInfo ici = new InstanceConnectionInfo(address, dataPort);
+			InstanceConnectionInfo ici = new InstanceConnectionInfo(address, dataPort + 0);
 
 			JavaTestKit probe = new JavaTestKit(system);
 			InstanceID i = cm.registerTaskManager(probe.getRef(), ici, resources, 1);
@@ -153,7 +157,7 @@ public class InstanceManagerTest{
 			InetAddress address = InetAddress.getByName("127.0.0.1");
 			
 			// register three instances
-			InstanceConnectionInfo ici1 = new InstanceConnectionInfo(address, dataPort);
+			InstanceConnectionInfo ici1 = new InstanceConnectionInfo(address, dataPort + 0);
 			InstanceConnectionInfo ici2 = new InstanceConnectionInfo(address, dataPort + 1);
 			InstanceConnectionInfo ici3 = new InstanceConnectionInfo(address, dataPort + 2);
 

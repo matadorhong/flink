@@ -18,18 +18,22 @@
 
 package org.apache.flink.client;
 
-import akka.actor.*;
-import akka.testkit.JavaTestKit;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
-import org.apache.flink.client.cli.CommandLineOptions;
+import akka.actor.ActorRef;
+import akka.actor.ActorSystem;
+import akka.actor.Props;
+import akka.actor.Status;
+import akka.actor.UntypedActor;
+import akka.testkit.JavaTestKit;
+import org.apache.commons.cli.CommandLine;
 import org.apache.flink.runtime.jobgraph.JobID;
 import org.apache.flink.runtime.messages.JobManagerMessages;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import static org.apache.flink.client.CliFrontendTestUtils.pipeSystemOutToNull;
-import static org.junit.Assert.*;
 
 public class CliFrontendListCancelTest {
 
@@ -37,12 +41,11 @@ public class CliFrontendListCancelTest {
 
 	@BeforeClass
 	public static void setup(){
-		pipeSystemOutToNull();
 		actorSystem = ActorSystem.create("TestingActorSystem");
 	}
 
 	@AfterClass
-	public static void teardown() {
+	public static void teardown(){
 		JavaTestKit.shutdownActorSystem(actorSystem);
 		actorSystem = null;
 	}
@@ -59,15 +62,15 @@ public class CliFrontendListCancelTest {
 			// test unrecognized option
 			{
 				String[] parameters = {"-v", "-l"};
-				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
+				CliFrontend testFrontend = new CliFrontendTestUtils.TestingCliFrontend();
 				int retCode = testFrontend.cancel(parameters);
-				assertTrue(retCode != 0);
+				assertTrue(retCode == 2);
 			}
 			
 			// test missing job id
 			{
 				String[] parameters = {};
-				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
+				CliFrontend testFrontend = new CliFrontendTestUtils.TestingCliFrontend();
 				int retCode = testFrontend.cancel(parameters);
 				assertTrue(retCode != 0);
 			}
@@ -79,46 +82,43 @@ public class CliFrontendListCancelTest {
 
 				final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, jid));
 				
-				String[] parameters = { jidString };
+				String[] parameters = {"-i", jidString};
 				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(jm);
-
 				int retCode = testFrontend.cancel(parameters);
 				assertTrue(retCode == 0);
 			}
-
-			// test cancel properly
-			{
-				JobID jid1 = new JobID();
-				JobID jid2 = new JobID();
-
-				final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, jid1));
-
-				String[] parameters = { jid2.toString() };
-				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(jm);
-
-				assertTrue(testFrontend.cancel(parameters) != 0);
-			}
 		}
 		catch (Exception e) {
+			System.err.println(e.getMessage());
 			e.printStackTrace();
 			fail("Program caused an exception: " + e.getMessage());
 		}
 	}
-
+	
+	
 	@Test
 	public void testList() {
 		try {
+			final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, (Object)null));
+
 			// test unrecognized option
 			{
 				String[] parameters = {"-v", "-k"};
-				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
+				CliFrontend testFrontend = new CliFrontendTestUtils.TestingCliFrontend();
+				int retCode = testFrontend.list(parameters);
+				assertTrue(retCode == 2);
+			}
+			
+			// test missing flags
+			{
+				String[] parameters = {};
+				CliFrontend testFrontend = new CliFrontendTestUtils.TestingCliFrontend();
 				int retCode = testFrontend.list(parameters);
 				assertTrue(retCode != 0);
 			}
 			
 			// test list properly
 			{
-				final ActorRef jm = actorSystem.actorOf(Props.create(CliJobManager.class, (Object)null));
 				String[] parameters = {"-r", "-s"};
 				InfoListTestCliFrontend testFrontend = new InfoListTestCliFrontend(jm);
 				int retCode = testFrontend.list(parameters);
@@ -133,19 +133,15 @@ public class CliFrontendListCancelTest {
 	}
 
 
-	protected static final class InfoListTestCliFrontend extends CliFrontend {
-
+	protected static final class InfoListTestCliFrontend extends CliFrontendTestUtils.TestingCliFrontend {
 		private ActorRef jobmanager;
 
-
-
-		public InfoListTestCliFrontend(ActorRef jobmanager) throws Exception {
-			super(CliFrontendTestUtils.getConfigDir());
+		public InfoListTestCliFrontend(ActorRef jobmanager){
 			this.jobmanager = jobmanager;
 		}
 
 		@Override
-		public ActorRef getJobManager(CommandLineOptions options) {
+		public ActorRef getJobManager(CommandLine line){
 			return jobmanager;
 		}
 	}
@@ -159,21 +155,15 @@ public class CliFrontendListCancelTest {
 
 		@Override
 		public void onReceive(Object message) throws Exception {
-			if (message instanceof JobManagerMessages.RequestTotalNumberOfSlots$) {
+			if(message instanceof JobManagerMessages.RequestTotalNumberOfSlots$){
 				getSender().tell(1, getSelf());
-			}
-			else if (message instanceof JobManagerMessages.CancelJob) {
+			}else if(message instanceof JobManagerMessages.CancelJob){
 				JobManagerMessages.CancelJob cancelJob = (JobManagerMessages.CancelJob) message;
-
-				if (jobID != null && jobID.equals(cancelJob.jobID())) {
-					getSender().tell(new Status.Success(new Object()), getSelf());
-				}
-				else {
-					getSender().tell(new Status.Failure(new Exception("Wrong or no JobID")), getSelf());
-				}
-			}
-			else if (message instanceof JobManagerMessages.RequestRunningJobsStatus$) {
-				getSender().tell(new JobManagerMessages.RunningJobsStatus(), getSelf());
+				assertEquals(jobID, cancelJob.jobID());
+				getSender().tell(new Status.Success(new Object()), getSelf());
+			}else if(message instanceof  JobManagerMessages.RequestRunningJobs$){
+				getSender().tell(new JobManagerMessages.RunningJobs(),
+						getSelf());
 			}
 		}
 	}

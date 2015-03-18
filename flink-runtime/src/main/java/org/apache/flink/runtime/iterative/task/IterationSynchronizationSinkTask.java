@@ -73,7 +73,7 @@ public class IterationSynchronizationSinkTask extends AbstractInvokable implemen
 	
 	@Override
 	public void registerInputOutput() {
-		this.headEventReader = new MutableRecordReader<IntegerRecord>(getEnvironment().getInputGate(0));
+		this.headEventReader = new MutableRecordReader<IntegerRecord>(getEnvironment().getReader(0));
 	}
 
 	@Override
@@ -99,7 +99,7 @@ public class IterationSynchronizationSinkTask extends AbstractInvokable implemen
 		int numEventsTillEndOfSuperstep = taskConfig.getNumberOfEventsUntilInterruptInIterativeGate(0);
 		eventHandler = new SyncEventHandler(numEventsTillEndOfSuperstep, aggregators,
 				getEnvironment().getUserClassLoader());
-		headEventReader.registerTaskEventListener(eventHandler, WorkerDoneEvent.class);
+		headEventReader.subscribeToTaskEvent(eventHandler, WorkerDoneEvent.class);
 
 		IntegerRecord dummy = new IntegerRecord();
 		

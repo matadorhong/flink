@@ -34,10 +34,9 @@ public class CountEvictionPolicy<IN> implements CloneableEvictionPolicy<IN> {
 	 */
 	private static final long serialVersionUID = 2319201348806427996L;
 
-	private int maxElements;
-	private int counter;
-	private int deleteOnEviction = 1;
-	private int startValue;
+	int maxElements;
+	int counter;
+	int deleteOnEviction = 1;
 
 	/**
 	 * This constructor allows the setup of the simplest possible count based
@@ -95,7 +94,6 @@ public class CountEvictionPolicy<IN> implements CloneableEvictionPolicy<IN> {
 		this.counter = startValue;
 		this.deleteOnEviction = deleteOnEviction;
 		this.maxElements = maxElements;
-		this.startValue = startValue;
 	}
 
 	@Override
@@ -117,39 +115,5 @@ public class CountEvictionPolicy<IN> implements CloneableEvictionPolicy<IN> {
 	@Override
 	public CountEvictionPolicy<IN> clone() {
 		return new CountEvictionPolicy<IN>(maxElements, deleteOnEviction, counter);
-	}
-
-	@Override
-	public boolean equals(Object other) {
-		if (other == null || !(other instanceof CountEvictionPolicy)) {
-			return false;
-		} else {
-			try {
-				@SuppressWarnings("unchecked")
-				CountEvictionPolicy<IN> otherPolicy = (CountEvictionPolicy<IN>) other;
-				return startValue == otherPolicy.startValue
-						&& deleteOnEviction == otherPolicy.deleteOnEviction
-						&& maxElements == otherPolicy.maxElements;
-			} catch (ClassCastException e) {
-				return false;
-			}
-		}
-	}
-
-	public int getWindowSize() {
-		return maxElements;
-	}
-
-	public int getStart() {
-		return startValue;
-	}
-	
-	public int getDeleteOnEviction(){
-		return deleteOnEviction;
-	}
-
-	@Override
-	public String toString() {
-		return "CountPolicy(" + maxElements + ")";
 	}
 }

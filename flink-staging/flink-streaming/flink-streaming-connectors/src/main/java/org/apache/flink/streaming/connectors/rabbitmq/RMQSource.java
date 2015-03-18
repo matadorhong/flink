@@ -46,8 +46,6 @@ public class RMQSource<OUT> extends ConnectorSource<OUT> {
 	private transient QueueingConsumer consumer;
 	private transient QueueingConsumer.Delivery delivery;
 
-	private volatile boolean isRunning = false;
-
 	OUT out;
 
 	public RMQSource(String HOST_NAME, String QUEUE_NAME,
@@ -82,46 +80,42 @@ public class RMQSource<OUT> extends ConnectorSource<OUT> {
 	 *            The Collector for sending data to the dataStream
 	 */
 	@Override
-	public void run(Collector<OUT> collector) throws Exception {
-		isRunning = true;
-		try {
-			while (isRunning) {
+	public void invoke(Collector<OUT> collector) throws Exception {
 
-				try {
-					delivery = consumer.nextDelivery();
-				} catch (Exception e) {
-					if (LOG.isErrorEnabled()) {
-						LOG.error("Cannot recieve RMQ message {} at {}", QUEUE_NAME, HOST_NAME);
-					}
-				}
+		while (true) {
 
-				out = schema.deserialize(delivery.getBody());
-				if (schema.isEndOfStream(out)) {
-					break;
-				} else {
-					collector.collect(out);
+			try {
+				delivery = consumer.nextDelivery();
+			} catch (Exception e) {
+				if (LOG.isErrorEnabled()) {
+					LOG.error("Cannot recieve RMQ message {} at {}", QUEUE_NAME, HOST_NAME);
 				}
 			}
-		} finally {
-			connection.close();
+
+			out = schema.deserialize(delivery.getBody());
+			if (schema.isEndOfStream(out)) {
+				break;
+			} else {
+				collector.collect(out);
+			}
 		}
 
 	}
 
 	@Override
-	public void open(Configuration config) throws Exception {
+	public void open(Configuration config) {
 		initializeConnection();
 	}
 
 	@Override
-	public void cancel() {
-		isRunning = false;
+	public void close() {
 		try {
 			connection.close();
 		} catch (IOException e) {
 			throw new RuntimeException("Error while closing RMQ connection with " + QUEUE_NAME
 					+ " at " + HOST_NAME, e);
 		}
+
 	}
 
 }

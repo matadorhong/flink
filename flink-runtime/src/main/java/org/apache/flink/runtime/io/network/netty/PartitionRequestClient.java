@@ -60,10 +60,6 @@ public class PartitionRequestClient {
 		this.clientFactory = checkNotNull(clientFactory);
 	}
 
-	boolean disposeIfNotUsed() {
-		return closeReferenceCounter.disposeIfNotUsed();
-	}
-
 	/**
 	 * Increments the reference counter.
 	 * <p>

@@ -61,17 +61,7 @@ public class AtomicDisposableReferenceCounter {
 
 			referenceCounter--;
 
-			if (referenceCounter <= 0) {
-				isDisposed = true;
-			}
-
-			return isDisposed;
-		}
-	}
-
-	public boolean disposeIfNotUsed() {
-		synchronized (lock) {
-			if(referenceCounter <= 0){
+			if (referenceCounter == 0) {
 				isDisposed = true;
 			}
 

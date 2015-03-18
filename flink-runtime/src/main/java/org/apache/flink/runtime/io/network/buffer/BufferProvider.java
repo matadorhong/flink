@@ -50,6 +50,4 @@ public interface BufferProvider {
 	 */
 	boolean addListener(EventListener<Buffer> listener);
 
-	boolean isDestroyed();
-
 }

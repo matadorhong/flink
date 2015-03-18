@@ -44,19 +44,20 @@ public class AvroInputFormat<E> extends FileInputFormat<E> implements ResultType
 	private static final long serialVersionUID = 1L;
 
 	private static final Logger LOG = LoggerFactory.getLogger(AvroInputFormat.class);
-
+	
+	
 	private final Class<E> avroValueType;
 	
 	private boolean reuseAvroValue = true;
+	
 
 	private transient FileReader<E> dataFileReader;
-
-	private transient long end;
 
 	
 	public AvroInputFormat(Path filePath, Class<E> type) {
 		super(filePath);
 		this.avroValueType = type;
+		this.unsplittable = true;
 	}
 	
 	
@@ -68,13 +69,6 @@ public class AvroInputFormat<E> extends FileInputFormat<E> implements ResultType
 	 */
 	public void setReuseAvroValue(boolean reuseAvroValue) {
 		this.reuseAvroValue = reuseAvroValue;
-	}
-
-	/**
-	 * If set, the InputFormat will only read entire files.
-	 */
-	public void setUnsplittable(boolean unsplittable) {
-		this.unsplittable = unsplittable;
 	}
 	
 	// --------------------------------------------------------------------------------------------
@@ -103,21 +97,20 @@ public class AvroInputFormat<E> extends FileInputFormat<E> implements ResultType
 		
 		LOG.info("Opening split " + split);
 		
-		SeekableInput in = new FSDataInputStreamWrapper(stream, split.getPath().getFileSystem().getFileStatus(split.getPath()).getLen());
-
+		SeekableInput in = new FSDataInputStreamWrapper(stream, (int) split.getLength());
+		
 		dataFileReader = DataFileReader.openReader(in, datumReader);
 		dataFileReader.sync(split.getStart());
-		this.end = split.getStart() + split.getLength();
 	}
 
 	@Override
 	public boolean reachedEnd() throws IOException {
-		return !dataFileReader.hasNext() || dataFileReader.pastSync(end);
+		return !dataFileReader.hasNext();
 	}
 
 	@Override
 	public E nextRecord(E reuseValue) throws IOException {
-		if (reachedEnd()) {
+		if (!dataFileReader.hasNext()) {
 			return null;
 		}
 		

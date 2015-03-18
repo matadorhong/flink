@@ -20,25 +20,29 @@ package org.apache.flink.streaming.state;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import org.apache.flink.runtime.state.OperatorState;
-import org.apache.flink.runtime.state.StateCheckpoint;
+import org.apache.flink.streaming.state.checkpoint.StateCheckpoint;
 import org.junit.Test;
 
 public class OperatorStateTest {
 
 	@Test
 	public void testOperatorState() {
-		OperatorState<Integer> os = new OperatorState<Integer>(5);
-
+		OperatorState<Integer> os = new SimpleState<Integer>(5);
+		
 		StateCheckpoint<Integer> scp = os.checkpoint();
-
-		assertTrue(os.stateEquals(scp.restore()));
-
+		
+		assertTrue(os.stateEquals(new SimpleState<Integer>().restore(scp)));
+		
 		assertEquals((Integer) 5, os.getState());
-
-		os.update(10);
-
+		
+		os.setState(10);
+		
 		assertEquals((Integer) 10, os.getState());
+		
+		scp.update(os.checkpoint());
+		
+		assertEquals((Integer)10,scp.getCheckpointedState());
+		
 	}
 
 }

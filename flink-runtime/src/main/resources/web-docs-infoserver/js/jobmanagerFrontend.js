@@ -168,7 +168,6 @@ function fillTable(table, json) {
 		var countStarting = 0;
 		var countRunning = 0;
 		var countFinished = 0;
-		var countCanceling = 0;
 		var countCanceled = 0;
 		var countFailed = 0;
 		recentjobs.push(job.jobid);
@@ -189,7 +188,6 @@ function fillTable(table, json) {
 							<th>Starting</th>\
 							<th>Running</th>\
 							<th>Finished</th>\
-							<th>Canceling</th>\
 							<th>Canceled</th>\
 							<th>Failed</th>\
 						</tr>";
@@ -201,8 +199,7 @@ function fillTable(table, json) {
 			countStarting += starting;
 			countRunning += groupvertex.RUNNING;
 			countFinished += groupvertex.FINISHED;
-			countCanceling += groupvertex.CANCELING;
-			countCanceled += groupvertex.CANCELED;
+			countCanceled += groupvertex.CANCELING + groupvertex.CANCELED;
 			countFailed += groupvertex.FAILED;
 			jobtable += "<tr>\
 							<td id=\""+groupvertex.groupvertexid+"\">\
@@ -214,8 +211,7 @@ function fillTable(table, json) {
 			jobtable += progressBar(groupvertex.numberofgroupmembers, starting, 'starting');
 			jobtable += progressBar(groupvertex.numberofgroupmembers, groupvertex.RUNNING, 'running');
 			jobtable += progressBar(groupvertex.numberofgroupmembers, (groupvertex.FINISHED), 'success finished');
-			jobtable += progressBar(groupvertex.numberofgroupmembers, (groupvertex.CANCELING), 'warning canceling');
-			jobtable += progressBar(groupvertex.numberofgroupmembers, (groupvertex.CANCELED), 'warning canceled');
+			jobtable += progressBar(groupvertex.numberofgroupmembers, (groupvertex.CANCELING + groupvertex.CANCELED), 'warning canceled');
 			jobtable += progressBar(groupvertex.numberofgroupmembers, groupvertex.FAILED, 'danger failed');
 			jobtable +=	"</tr><tr>\
 						<td colspan=8 id=\"_"+groupvertex.groupvertexid+"\" style=\"display:none\">\
@@ -245,7 +241,6 @@ function fillTable(table, json) {
 		jobtable += progressBar(countTasks, countStarting, 'starting');
 		jobtable += progressBar(countTasks, countRunning, 'running');
 		jobtable += progressBar(countTasks, countFinished, 'success finished');
-		jobtable += progressBar(countTasks, countCanceling, 'warning canceling');
 		jobtable += progressBar(countTasks, countCanceled, 'warning canceled');
 		jobtable += progressBar(countTasks, countFailed, 'danger failed');
 		jobtable += "</tr>";
@@ -312,11 +307,15 @@ function updateTable(json) {
 			var oldstatus = ""+$("#"+event.vertexid).children(".status").html();
 			if (oldstatus == "CREATED" ||  oldstatus == "SCHEDULED" ||  oldstatus == "DEPLOYING")
 				oldstatus = "starting";
-
+			else if(oldstatus == "CANCELING")
+				oldstatus = "canceled";
+			
 			var newstate = event.newstate;
 			if(newstate == "CREATED" ||  newstate == "SCHEDULED" || newstate == "DEPLOYING")
 				newstate = "starting";
-
+			else if(newstate == "CANCELING")
+				newstate = "canceled";
+			
 			// update detailed state
 			$("#"+event.vertexid).children(".status").html(event.newstate);
 			// update timestamp

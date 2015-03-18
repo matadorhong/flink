@@ -18,40 +18,27 @@
 
 package org.apache.flink.yarn
 
-import java.net.InetSocketAddress
 import java.util.Date
 
-import akka.actor.ActorRef
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus
 
 object Messages {
-
   case class YarnMessage(message: String, date: Date = new Date())
   case class ApplicationMasterStatus(numTaskManagers: Int, numSlots: Int)
-  case class RegisterClient(client: ActorRef)
+  case object RegisterClient
 
-  case class StopYarnSession(status: FinalApplicationStatus, diagnostics: String)
-
+  case class StopYarnSession(status: FinalApplicationStatus)
   case object JobManagerStopped
+  case class StartYarnSession(configuration: Configuration, actorSystemPort: Int)
 
-  case class StartYarnSession(configuration: Configuration,
-                              actorSystemPort: Int,
-                              webServerport: Int)
-
-  case class JobManagerActorRef(jobManager: ActorRef)
-
-  case object HeartbeatWithYarn
+  case object PollContainerCompletion
   case object PollYarnClusterStatus // see org.apache.flink.runtime.yarn.FlinkYarnClusterStatus for
                                     // the response
   case object CheckForUserCommand
 
   // Client-local messages
-  case class LocalRegisterClient(jobManagerAddress: InetSocketAddress)
+  case class LocalRegisterClient(jobManagerAddress: String)
   case object LocalGetYarnMessage // request new message
   case object LocalGetYarnClusterStatus // request the latest cluster status
-
-  def getLocalGetYarnMessage(): AnyRef = {
-    LocalGetYarnMessage
-  }
 }

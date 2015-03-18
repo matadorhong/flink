@@ -22,7 +22,6 @@ import org.apache.flink.api.common.distributions.DataDistribution;
 import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.operators.Ordering;
 import org.apache.flink.api.common.operators.SemanticProperties;
-import org.apache.flink.api.common.operators.util.FieldList;
 import org.apache.flink.api.common.operators.util.FieldSet;
 import org.apache.flink.compiler.CompilerException;
 import org.apache.flink.compiler.plan.Channel;
@@ -47,7 +46,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 	private DataDistribution dataDistribution;	// optional data distribution, for a range partitioning
 	
 	private Partitioner<?> customPartitioner;	// optional, partitioner for custom partitioning
-
+	
 	// --------------------------------------------------------------------------------------------
 	
 	/**
@@ -61,9 +60,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 	
 	/**
 	 * Sets the partitioning property for the global properties.
-	 * If the partitionFields are provided as {@link FieldSet} also subsets are valid,
-	 * if provided as {@link FieldList} partitioning fields must exactly match incl. order.
-	 *
+	 * 
 	 * @param partitionedFields
 	 */
 	public void setHashPartitioned(FieldSet partitionedFields) {
@@ -89,14 +86,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 		this.partitioningFields = null;
 		this.dataDistribution = dataDistribution;
 	}
-
-	/**
-	 * Sets the partitioning property for the global properties.
-	 * If the partitionFields are provided as {@link FieldSet} also subsets are valid,
-	 * if provided as {@link FieldList} partitioning fields must exactly match incl. order.
-	 *
-	 * @param partitionedFields
-	 */
+	
 	public void setAnyPartitioning(FieldSet partitionedFields) {
 		if (partitionedFields == null) {
 			throw new NullPointerException();
@@ -129,14 +119,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 		this.partitioningFields = null;
 		this.ordering = null;
 	}
-
-	/**
-	 * Sets the partitioning property for the global properties.
-	 * If the partitionFields are provided as {@link FieldSet} also subsets are valid,
-	 * if provided as {@link FieldList} partitioning fields must exactly match incl. order.
-	 *
-	 * @param partitionedFields
-	 */
+	
 	public void setCustomPartitioned(FieldSet partitionedFields, Partitioner<?> partitioner) {
 		if (partitionedFields == null || partitioner == null) {
 			throw new NullPointerException();
@@ -147,7 +130,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 		this.ordering = null;
 		this.customPartitioner = partitioner;
 	}
-
+	
 	/**
 	 * Gets the partitioning property.
 	 * 
@@ -165,7 +148,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 	public FieldSet getPartitionedFields() {
 		return this.partitioningFields;
 	}
-
+	
 	/**
 	 * Gets the key order.
 	 * 
@@ -237,13 +220,7 @@ public final class RequestedGlobalProperties implements Cloneable {
 				return null;
 			case HASH_PARTITIONED:
 			case ANY_PARTITIONING:
-				FieldSet newFields;
-				if(this.partitioningFields instanceof FieldList) {
-					newFields = new FieldList();
-				} else {
-					newFields = new FieldSet();
-				}
-
+				FieldSet newFields = new FieldSet();
 				for (Integer targetField : this.partitioningFields) {
 					int sourceField = props.getForwardingSourceField(input, targetField);
 					if (sourceField >= 0) {
@@ -297,11 +274,11 @@ public final class RequestedGlobalProperties implements Cloneable {
 			return true;
 		}
 		else if (this.partitioning == PartitioningProperty.ANY_PARTITIONING) {
-			return checkCompatiblePartitioningFields(props);
+			return props.isPartitionedOnFields(this.partitioningFields);
 		}
 		else if (this.partitioning == PartitioningProperty.HASH_PARTITIONED) {
 			return props.getPartitioning() == PartitioningProperty.HASH_PARTITIONED &&
-					checkCompatiblePartitioningFields(props);
+					props.isPartitionedOnFields(this.partitioningFields);
 		}
 		else if (this.partitioning == PartitioningProperty.RANGE_PARTITIONED) {
 			return props.getPartitioning() == PartitioningProperty.RANGE_PARTITIONED &&
@@ -312,15 +289,14 @@ public final class RequestedGlobalProperties implements Cloneable {
 		}
 		else if (this.partitioning == PartitioningProperty.CUSTOM_PARTITIONING) {
 			return props.getPartitioning() == PartitioningProperty.CUSTOM_PARTITIONING &&
-					checkCompatiblePartitioningFields(props) &&
+					props.isPartitionedOnFields(this.partitioningFields) &&
 					props.getCustomPartitioner().equals(this.customPartitioner);
-
 		}
 		else {
 			throw new CompilerException("Properties matching logic leaves open cases.");
 		}
 	}
-
+	
 	/**
 	 * Parameterizes the ship strategy fields of a channel such that the channel produces the desired global properties.
 	 * 
@@ -331,8 +307,8 @@ public final class RequestedGlobalProperties implements Cloneable {
 
 		// safety check. Fully replicated input must be preserved.
 		if(channel.getSource().getGlobalProperties().isFullyReplicated() &&
-				!(this.partitioning == PartitioningProperty.FULL_REPLICATION ||
-					this.partitioning == PartitioningProperty.ANY_DISTRIBUTION)) {
+				(	this.partitioning != PartitioningProperty.FULL_REPLICATION ||
+					this.partitioning != PartitioningProperty.ANY_DISTRIBUTION)) {
 			throw new CompilerException("Fully replicated input must be preserved and may not be converted into another global property.");
 		}
 
@@ -419,15 +395,6 @@ public final class RequestedGlobalProperties implements Cloneable {
 		} catch (CloneNotSupportedException cnse) {
 			// should never happen, but propagate just in case
 			throw new RuntimeException(cnse);
-		}
-	}
-
-	private boolean checkCompatiblePartitioningFields(GlobalProperties props) {
-		if(this.partitioningFields instanceof FieldList) {
-			// partitioningFields as FieldList requires strict checking!
-			return props.isExactlyPartitionedOnFields((FieldList)this.partitioningFields);
-		} else {
-			return props.isPartitionedOnFields(this.partitioningFields);
 		}
 	}
 }

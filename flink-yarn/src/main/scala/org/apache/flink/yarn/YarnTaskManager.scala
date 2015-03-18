@@ -18,29 +18,20 @@
 
 package org.apache.flink.yarn
 
-import org.apache.flink.runtime.instance.InstanceConnectionInfo
-import org.apache.flink.runtime.taskmanager.{NetworkEnvironmentConfiguration, TaskManagerConfiguration, TaskManager}
+import org.apache.flink.runtime.ActorLogMessages
+import org.apache.flink.runtime.taskmanager.TaskManager
 import org.apache.flink.yarn.Messages.StopYarnSession
 
-/**
- * An extension of the TaskManager that listens for additional YARN related
- * messages.
- */
-class YarnTaskManager(connectionInfo: InstanceConnectionInfo, jobManagerAkkaURL: String,
-                  taskManagerConfig: TaskManagerConfiguration,
-                  networkConfig: NetworkEnvironmentConfiguration)
+trait YarnTaskManager extends ActorLogMessages {
+  that: TaskManager =>
 
-  extends TaskManager(connectionInfo, jobManagerAkkaURL, taskManagerConfig, networkConfig) {
-
-
-  override def receiveWithLogMessages: Receive = {
+  abstract override def receiveWithLogMessages: Receive = {
     receiveYarnMessages orElse super.receiveWithLogMessages
   }
 
   def receiveYarnMessages: Receive = {
-    case StopYarnSession(status, diagnostics) =>
-      log.info(s"Stopping YARN TaskManager with final application status $status " +
-        s"and diagnostics: $diagnostics")
+    case StopYarnSession(status) =>
+      log.info(s"Stopping YARN TaskManager with final application status $status")
       context.system.shutdown()
   }
 }

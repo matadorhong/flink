@@ -32,7 +32,6 @@ import java.util.Random;
 import org.apache.avro.reflect.ReflectDatumReader;
 import org.apache.avro.reflect.ReflectDatumWriter;
 import org.apache.flink.api.io.avro.generated.Colors;
-import org.apache.flink.api.io.avro.generated.Fixed16;
 import org.apache.flink.api.io.avro.generated.User;
 import org.apache.flink.util.StringUtils;
 import org.junit.Test;
@@ -233,11 +232,8 @@ public class EncoderDecoderTest {
 		map.put("1", 1L);
 		map.put("2", 2L);
 		map.put("3", 3L);
-
-		byte[] b = new byte[16];
-		new Random().nextBytes(b);
-		Fixed16 f = new Fixed16(b);
-		User user = new User("Freudenreich", 1337, "macintosh gray", 1234567890L, 3.1415926, null, true, strings, bools, null, Colors.GREEN, map, f, new Boolean(true));
+		
+		User user = new User("Freudenreich", 1337, "macintosh gray", 1234567890L, 3.1415926, null, true, strings, bools, null, Colors.GREEN, map);
 		
 		testObjectSerialization(user);
 	}

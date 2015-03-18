@@ -36,8 +36,6 @@ public class TumblingEvictionPolicyTest {
 			assertEquals(counter, policy.notifyEviction(0, true, counter));
 			counter = 1;
 		}
-
-		assertEquals(new TumblingEvictionPolicy<Integer>(), new TumblingEvictionPolicy<Integer>());
 	}
 
 }

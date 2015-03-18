@@ -26,7 +26,6 @@ public interface BufferPool extends BufferProvider, BufferRecycler {
 
 	void destroy() throws IOException;
 
-	@Override
 	boolean isDestroyed();
 
 	int getNumberOfRequiredMemorySegments();

@@ -20,6 +20,7 @@ package org.apache.flink.runtime.io.network.partition.consumer;
 
 import org.apache.flink.runtime.event.task.TaskEvent;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
+import org.apache.flink.runtime.io.network.api.reader.BufferReader;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.queue.IntermediateResultPartitionQueue;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
@@ -27,7 +28,7 @@ import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import java.io.IOException;
 
 /**
- * An input channel is the consumer of a single subpartition of an {@link IntermediateResultPartitionQueue}.
+ * An input channel is the consumer of a single queue of an {@link IntermediateResultPartitionQueue}.
  * <p>
  * For each channel, the consumption life cycle is as follows:
  * <ol>
@@ -44,14 +45,13 @@ public abstract class InputChannel {
 
 	protected final IntermediateResultPartitionID partitionId;
 
-	protected final SingleInputGate inputGate;
+	protected final BufferReader reader;
 
-	protected InputChannel(SingleInputGate inputGate, int channelIndex, ExecutionAttemptID producerExecutionId,
-			IntermediateResultPartitionID partitionId) {
-		this.inputGate = inputGate;
+	protected InputChannel(int channelIndex, ExecutionAttemptID producerExecutionId, IntermediateResultPartitionID partitionId, BufferReader reader) {
 		this.channelIndex = channelIndex;
 		this.producerExecutionId = producerExecutionId;
 		this.partitionId = partitionId;
+		this.reader = reader;
 	}
 
 	// ------------------------------------------------------------------------
@@ -76,10 +76,11 @@ public abstract class InputChannel {
 	}
 
 	/**
-	 * Notifies the owning {@link SingleInputGate} about an available {@link Buffer} instance.
+	 * Notifies the {@link BufferReader}, which consumes this input channel
+	 * about an available {@link Buffer} instance.
 	 */
-	protected void notifyAvailableBuffer() {
-		inputGate.onAvailableBuffer(this);
+	protected void notifyReaderAboutAvailableBuffer() {
+		reader.onAvailableInputChannel(this);
 	}
 
 	// ------------------------------------------------------------------------
@@ -93,10 +94,10 @@ public abstract class InputChannel {
 	 * The queue index to request depends on which sub task the channel belongs
 	 * to and is specified by the consumer of this channel.
 	 */
-	public abstract void requestIntermediateResultPartition(int queueIndex) throws IOException, InterruptedException;
+	public abstract void requestIntermediateResultPartition(int queueIndex) throws IOException;
 
 	/**
-	 * Returns the next buffer from the consumed subpartition.
+	 * Returns the next buffer from the consumed queue.
 	 */
 	public abstract Buffer getNextBuffer() throws IOException;
 
@@ -105,12 +106,10 @@ public abstract class InputChannel {
 	// ------------------------------------------------------------------------
 
 	/**
-	 * Sends a {@link TaskEvent} back to the task producing the consumed result partition.
+	 * Sends a {@link TaskEvent} back to the partition producer.
 	 * <p>
-	 * <strong>Important</strong>: The producing task has to be running to receive backwards events.
-	 * This means that the result type needs to be pipelined and the task logic has to ensure that
-	 * the producer will wait for all backwards events. Otherwise, this will lead to an Exception
-	 * at runtime.
+	 * <strong>Important</strong>: This only works if the producer task is
+	 * running at the same time.
 	 */
 	public abstract void sendTaskEvent(TaskEvent event) throws IOException;
 

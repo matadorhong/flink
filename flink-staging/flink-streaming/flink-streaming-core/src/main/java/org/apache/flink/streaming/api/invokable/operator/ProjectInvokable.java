@@ -28,7 +28,6 @@ public class ProjectInvokable<IN, OUT extends Tuple> extends StreamInvokable<IN,
 
 	transient OUT outTuple;
 	TypeSerializer<OUT> outTypeSerializer;
-	TypeInformation<OUT> outTypeInformation;
 	int[] fields;
 	int numFields;
 
@@ -36,12 +35,12 @@ public class ProjectInvokable<IN, OUT extends Tuple> extends StreamInvokable<IN,
 		super(null);
 		this.fields = fields;
 		this.numFields = this.fields.length;
-		this.outTypeInformation = outTypeInformation;
+		this.outTypeSerializer = outTypeInformation.createSerializer(executionConfig);
 	}
 
 	@Override
 	public void invoke() throws Exception {
-		while (isRunning && readNext() != null) {
+		while (readNext() != null) {
 			callUserFunctionAndLogException();
 		}
 	}
@@ -57,7 +56,6 @@ public class ProjectInvokable<IN, OUT extends Tuple> extends StreamInvokable<IN,
 	@Override
 	public void open(Configuration config) throws Exception {
 		super.open(config);
-		this.outTypeSerializer = outTypeInformation.createSerializer(executionConfig);
 		outTuple = outTypeSerializer.createInstance();
 	}
 }

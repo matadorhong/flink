@@ -80,6 +80,7 @@ public class Time<DATA> implements WindowingHelper<DATA> {
 		this.length = length;
 		this.granularity = timeUnit;
 		this.timestampWrapper = timestampWrapper;
+		this.delay = 0;
 	}
 
 	@Override
@@ -89,7 +90,7 @@ public class Time<DATA> implements WindowingHelper<DATA> {
 
 	@Override
 	public TriggerPolicy<DATA> toTrigger() {
-		return new TimeTriggerPolicy<DATA>(granularityInMillis(), timestampWrapper);
+		return new TimeTriggerPolicy<DATA>(granularityInMillis(), timestampWrapper, delay);
 	}
 
 	/**
@@ -146,7 +147,19 @@ public class Time<DATA> implements WindowingHelper<DATA> {
 	public static <DATA> Time<DATA> of(long length, Timestamp<DATA> timestamp) {
 		return of(length, timestamp, 0);
 	}
-	
+
+	/**
+	 * Sets the delay for the first processed window.
+	 * 
+	 * @param delay
+	 *            The number of time units before the first processed window.
+	 * @return Helper representing the time based trigger and eviction policy
+	 */
+	public Time<DATA> withDelay(long delay) {
+		this.delay = delay;
+		return this;
+	}
+
 	protected long granularityInMillis() {
 		return granularity == null ? length : granularity.toMillis(length);
 	}

@@ -24,6 +24,7 @@ import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.functions.util.CopyingListCollector;
 import org.apache.flink.api.common.functions.util.FunctionUtils;
+import org.apache.flink.api.common.functions.util.ListCollector;
 import org.apache.flink.api.common.operators.BinaryOperatorInformation;
 import org.apache.flink.api.common.operators.DualInputOperator;
 import org.apache.flink.api.common.operators.util.UserCodeClassWrapper;
@@ -149,8 +150,10 @@ public class JoinOperatorBase<IN1, IN2, OUT, FT extends FlatJoinFunction<IN1, IN
 		TypeInformation<IN2> rightInformation = getOperatorInfo().getSecondInputType();
 		TypeInformation<OUT> outInformation = getOperatorInfo().getOutputType();
 
-		TypeSerializer<IN1> leftSerializer = leftInformation.createSerializer(executionConfig);
-		TypeSerializer<IN2> rightSerializer = rightInformation.createSerializer(executionConfig);
+		boolean objectReuseDisabled = !executionConfig.isObjectReuseEnabled();
+		
+		TypeSerializer<IN1> leftSerializer = objectReuseDisabled ? leftInformation.createSerializer(executionConfig) : null;
+		TypeSerializer<IN2> rightSerializer = objectReuseDisabled ? rightInformation.createSerializer(executionConfig) : null;
 		
 		TypeComparator<IN1> leftComparator;
 		TypeComparator<IN2> rightComparator;
@@ -188,7 +191,8 @@ public class JoinOperatorBase<IN1, IN2, OUT, FT extends FlatJoinFunction<IN1, IN
 		TypePairComparator<IN1, IN2> pairComparator = new GenericPairComparator<IN1, IN2>(leftComparator, rightComparator);
 
 		List<OUT> result = new ArrayList<OUT>();
-		Collector<OUT> collector = new CopyingListCollector<OUT>(result, outInformation.createSerializer(executionConfig));
+		Collector<OUT> collector = objectReuseDisabled ? new CopyingListCollector<OUT>(result, outInformation.createSerializer(executionConfig))
+														: new ListCollector<OUT>(result);
 
 		Map<Integer, List<IN2>> probeTable = new HashMap<Integer, List<IN2>>();
 
@@ -211,7 +215,11 @@ public class JoinOperatorBase<IN1, IN2, OUT, FT extends FlatJoinFunction<IN1, IN
 				pairComparator.setReference(left);
 				for (IN2 right : matchingHashes) {
 					if (pairComparator.equalToReference(right)) {
-						function.join(leftSerializer.copy(left), rightSerializer.copy(right), collector);
+						if (objectReuseDisabled) {
+							function.join(leftSerializer.copy(left), rightSerializer.copy(right), collector);
+						} else {
+							function.join(left, right, collector);
+						}
 					}
 				}
 			}

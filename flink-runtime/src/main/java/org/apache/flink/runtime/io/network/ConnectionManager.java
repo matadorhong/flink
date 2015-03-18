@@ -34,13 +34,7 @@ public interface ConnectionManager {
 	/**
 	 * Creates a {@link PartitionRequestClient} instance for the given {@link RemoteAddress}.
 	 */
-	PartitionRequestClient createPartitionRequestClient(RemoteAddress remoteAddress) throws IOException, InterruptedException;
-
-	/**
-	 * Closes opened ChannelConnections in case of a resource release
-	 * @param remoteAddress
-	 */
-	void closeOpenChannelConnections(RemoteAddress remoteAddress);
+	PartitionRequestClient createPartitionRequestClient(RemoteAddress remoteAddress) throws IOException;
 
 	int getNumberOfActiveConnections();
 

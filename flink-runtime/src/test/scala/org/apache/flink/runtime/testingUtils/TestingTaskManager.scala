@@ -19,45 +19,34 @@
 package org.apache.flink.runtime.testingUtils
 
 import akka.actor.{Terminated, ActorRef}
+import org.apache.flink.runtime.ActorLogMessages
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID
-import org.apache.flink.runtime.instance.InstanceConnectionInfo
 import org.apache.flink.runtime.jobgraph.JobID
-import org.apache.flink.runtime.messages.Messages.Disconnect
 import org.apache.flink.runtime.messages.TaskManagerMessages.UnregisterTask
-import org.apache.flink.runtime.taskmanager.{NetworkEnvironmentConfiguration, TaskManagerConfiguration, TaskManager}
+import org.apache.flink.runtime.taskmanager.TaskManager
 import org.apache.flink.runtime.testingUtils.TestingJobManagerMessages.NotifyWhenJobRemoved
-import org.apache.flink.runtime.testingUtils.TestingMessages.DisableDisconnect
+import org.apache.flink.runtime.ActorLogMessages
 import org.apache.flink.runtime.testingUtils.TestingTaskManagerMessages._
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
 /**
- * Subclass of the [[TaskManager]] to support testing messages
+ * Mixin for the [[TaskManager]] to support testing messages
  */
-class TestingTaskManager(connectionInfo: InstanceConnectionInfo,
-                         jobManagerAkkaURL: String,
-                         taskManagerConfig: TaskManagerConfiguration,
-                         networkConfig: NetworkEnvironmentConfiguration)
-  extends TaskManager(connectionInfo, jobManagerAkkaURL, taskManagerConfig, networkConfig) {
-
+trait TestingTaskManager extends ActorLogMessages {
+  that: TaskManager =>
 
   val waitForRemoval = scala.collection.mutable.HashMap[ExecutionAttemptID, Set[ActorRef]]()
   val waitForJobRemoval = scala.collection.mutable.HashMap[JobID, Set[ActorRef]]()
   val waitForJobManagerToBeTerminated = scala.collection.mutable.HashMap[String, Set[ActorRef]]()
 
-  var disconnectDisabled = false
-
-
-  override def receiveWithLogMessages = {
+  abstract override def receiveWithLogMessages = {
     receiveTestMessages orElse super.receiveWithLogMessages
   }
 
-  /**
-   * Handler for testing related messages
-   */
   def receiveTestMessages: Receive = {
-
+    
     case RequestRunningTasks =>
       sender ! ResponseRunningTasks(runningTasks.toMap)
       
@@ -71,7 +60,7 @@ class TestingTaskManager(connectionInfo: InstanceConnectionInfo,
       
     case UnregisterTask(executionID) =>
       super.receiveWithLogMessages(UnregisterTask(executionID))
-      waitForRemoval.remove(executionID) match {
+      waitForRemoval.get(executionID) match {
         case Some(actors) => for(actor <- actors) actor ! true
         case None =>
       }
@@ -88,7 +77,7 @@ class TestingTaskManager(connectionInfo: InstanceConnectionInfo,
         case None => sender ! ResponseNumActiveConnections(0)
       }
 
-    case NotifyWhenJobRemoved(jobID) =>
+  case NotifyWhenJobRemoved(jobID) =>
       if(runningTasks.values.exists(_.getJobID == jobID)){
         val set = waitForJobRemoval.getOrElse(jobID, Set())
         waitForJobRemoval += (jobID -> (set + sender))
@@ -103,7 +92,7 @@ class TestingTaskManager(connectionInfo: InstanceConnectionInfo,
 
     case CheckIfJobRemoved(jobID) =>
       if(runningTasks.values.forall(_.getJobID != jobID)){
-        waitForJobRemoval.remove(jobID) match {
+        waitForJobRemoval.get(jobID) match {
           case Some(listeners) => listeners foreach (_ ! true)
           case None =>
         }
@@ -119,26 +108,10 @@ class TestingTaskManager(connectionInfo: InstanceConnectionInfo,
     case msg@Terminated(jobManager) =>
       super.receiveWithLogMessages(msg)
 
-      waitForJobManagerToBeTerminated.remove(jobManager.path.name) foreach {
+      waitForJobManagerToBeTerminated.get(jobManager.path.name) foreach {
         _ foreach {
           _ ! JobManagerTerminated(jobManager)
         }
       }
-
-    case msg:Disconnect =>
-      if (!disconnectDisabled) {
-        super.receiveWithLogMessages(msg)
-
-        val jobManager = sender
-
-        waitForJobManagerToBeTerminated.remove(jobManager.path.name) foreach {
-          _ foreach {
-            _ ! JobManagerTerminated(jobManager)
-          }
-        }
-      }
-
-    case DisableDisconnect =>
-      disconnectDisabled = true
   }
 }

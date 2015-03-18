@@ -39,21 +39,12 @@ import org.apache.flink.api.java.operators.Keys.ExpressionKeys;
 
 import com.google.common.base.Joiner;
 
+
 /**
- * TypeInformation for "Java Beans"-style types. Flink refers to them as POJOs,
- * since the conditions are slightly different from Java Beans.
- * A type is considered a FLink POJO type, if it fulfills the conditions below.
- * <ul>
- *   <li>It is a public class, and standalone (not a non-static inner class)</li>
- *   <li>It has a public no-argument constructor.</li>
- *   <li>All fields are either public, or have public getters and setters.</li>
- * </ul>
+ * TypeInformation for arbitrary (they have to be java-beans-style) java objects (what we call POJO).
  * 
- * @param <T> The type represented by this type information.
  */
 public class PojoTypeInfo<T> extends CompositeType<T> {
-	
-	private static final long serialVersionUID = 1L;
 
 	private final static String REGEX_FIELD = "[\\p{L}_\\$][\\p{L}\\p{Digit}_\\$]*";
 	private final static String REGEX_NESTED_FIELDS = "("+REGEX_FIELD+")(\\.(.+))?";
@@ -290,23 +281,6 @@ public class PojoTypeInfo<T> extends CompositeType<T> {
 		return new PojoComparator<T>(finalKeyFields, finalFieldComparators, createSerializer(config), typeClass);
 	}
 
-	public String[] getFieldNames() {
-		String[] result = new String[fields.length];
-		for (int i = 0; i < fields.length; i++) {
-			result[i] = fields[i].field.getName();
-		}
-		return result;
-	}
-
-	@Override
-	public int getFieldIndex(String fieldName) {
-		for (int i = 0; i < fields.length; i++) {
-			if (fields[i].field.getName().equals(fieldName)) {
-				return i;
-			}
-		}
-		return -1;
-	}
 
 	@Override
 	public TypeSerializer<T> createSerializer(ExecutionConfig config) {

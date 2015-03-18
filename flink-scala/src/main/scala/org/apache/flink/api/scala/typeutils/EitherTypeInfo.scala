@@ -21,8 +21,6 @@ import org.apache.flink.api.common.ExecutionConfig
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.common.typeutils.TypeSerializer
 
-import scala.collection.JavaConverters._
-
 /**
  * TypeInformation [[Either]].
  */
@@ -38,7 +36,6 @@ class EitherTypeInfo[A, B, T <: Either[A, B]](
   override def getTotalFields: Int = 1
   override def getArity: Int = 1
   override def getTypeClass = clazz
-  override def getGenericParameters = List[TypeInformation[_]](leftTypeInfo, rightTypeInfo).asJava
 
   def createSerializer(executionConfig: ExecutionConfig): TypeSerializer[T] = {
     val leftSerializer = if (leftTypeInfo != null) {

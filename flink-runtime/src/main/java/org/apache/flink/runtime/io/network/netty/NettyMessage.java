@@ -28,8 +28,6 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.MessageToMessageDecoder;
-import org.apache.flink.api.java.typeutils.runtime.DataInputViewStream;
-import org.apache.flink.api.java.typeutils.runtime.DataOutputViewStream;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.runtime.event.task.TaskEvent;
@@ -38,10 +36,10 @@ import org.apache.flink.runtime.io.network.api.serialization.EventSerializer;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.util.InstantiationUtil;
+import org.apache.flink.util.StringUtils;
 
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -55,9 +53,9 @@ abstract class NettyMessage {
 	// constructor in order to work with the generic deserializer.
 	// ------------------------------------------------------------------------
 
-	static final int HEADER_LENGTH = 4 + 4 + 1; // frame length (4), magic number (4), msg ID (1)
+	private static final int HEADER_LENGTH = 4 + 4 + 1; // frame length (4), magic number (4), msg ID (1)
 
-	static final int MAGIC_NUMBER = 0xBADC0FFE;
+	private static final int MAGIC_NUMBER = 0xBADC0FFE;
 
 	abstract ByteBuf write(ByteBufAllocator allocator) throws Exception;
 
@@ -275,26 +273,26 @@ abstract class NettyMessage {
 		ByteBuf write(ByteBufAllocator allocator) throws IOException {
 			ByteBuf result = null;
 
-			ObjectOutputStream oos = null;
-
 			try {
 				result = allocateBuffer(allocator, ID);
 
 				DataOutputView outputView = new ByteBufDataOutputView(result);
 
-				oos = new ObjectOutputStream(new DataOutputViewStream(outputView));
-
-				oos.writeObject(error);
+				StringUtils.writeNullableString(error.getClass().getName(), outputView);
+				StringUtils.writeNullableString(error.getMessage(), outputView);
 
 				if (receiverId != null) {
 					result.writeBoolean(true);
 					receiverId.writeTo(result);
-				} else {
+				}
+				else {
 					result.writeBoolean(false);
 				}
 
 				// Update frame length...
 				result.setInt(0, result.readableBytes());
+
+				return result;
 			}
 			catch (Throwable t) {
 				if (result != null) {
@@ -302,39 +300,26 @@ abstract class NettyMessage {
 				}
 
 				throw new IOException(t);
-			} finally {
-				if(oos != null) {
-					oos.close();
-				}
 			}
-
-			return result;
 		}
 
 		@Override
 		void readFrom(ByteBuf buffer) throws Exception {
 			DataInputView inputView = new ByteBufDataInputView(buffer);
-			ObjectInputStream ois = null;
 
-			try {
-				ois = new ObjectInputStream(new DataInputViewStream(inputView));
+			String errorClassName = StringUtils.readNullableString(inputView);
+			Class<Throwable> errorClazz = (Class<Throwable>) getClass().getClassLoader().loadClass(errorClassName);
 
-				Object obj = ois.readObject();
+			String errorMsg = StringUtils.readNullableString(inputView);
+			if (errorMsg != null) {
+				error = errorClazz.getConstructor(String.class).newInstance(errorMsg);
+			}
+			else {
+				error = InstantiationUtil.instantiate(errorClazz);
+			}
 
-				if (!(obj instanceof Throwable)) {
-					throw new ClassCastException("Read object expected to be of type Throwable, " +
-							"actual type is " + obj.getClass() + ".");
-				} else {
-					error = (Throwable) obj;
-
-					if (buffer.readBoolean()) {
-						receiverId = InputChannelID.fromByteBuf(buffer);
-					}
-				}
-			} finally {
-				if (ois != null) {
-					ois.close();
-				}
+			if (buffer.readBoolean()) {
+				receiverId = InputChannelID.fromByteBuf(buffer);
 			}
 		}
 	}
@@ -394,12 +379,6 @@ abstract class NettyMessage {
 			partitionId = IntermediateResultPartitionID.fromByteBuf(buffer);
 			queueIndex = buffer.readInt();
 			receiverId = InputChannelID.fromByteBuf(buffer);
-		}
-
-		@Override
-		public String toString() {
-			return String.format("PartitionRequest(ProducerID: %s, PartitionID: %s)",
-					producerExecutionId, partitionId);
 		}
 	}
 

@@ -20,23 +20,17 @@ package org.apache.flink.runtime.executiongraph;
 
 import akka.actor.ActorRef;
 import akka.dispatch.OnComplete;
-import static akka.dispatch.Futures.future;
-
-import akka.dispatch.OnFailure;
 import akka.pattern.Patterns;
 import akka.util.Timeout;
 import org.apache.flink.runtime.JobException;
 import org.apache.flink.runtime.akka.AkkaUtils;
-import org.apache.flink.runtime.deployment.PartialPartitionInfo;
 import org.apache.flink.runtime.deployment.PartitionInfo;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.instance.InstanceConnectionInfo;
 import org.apache.flink.runtime.instance.SimpleSlot;
 import org.apache.flink.runtime.instance.Instance;
-import org.apache.flink.runtime.io.network.RemoteAddress;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
-import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationConstraint;
 import org.apache.flink.runtime.jobmanager.scheduler.NoResourceAvailableException;
 import org.apache.flink.runtime.jobmanager.scheduler.ScheduledUnit;
@@ -45,8 +39,6 @@ import org.apache.flink.runtime.jobmanager.scheduler.SlotAllocationFuture;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotAllocationFutureAction;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
 import org.apache.flink.runtime.messages.TaskManagerMessages;
-import org.apache.flink.runtime.messages.TaskManagerMessages.TaskOperationResult;
-import org.apache.flink.runtime.state.StateHandle;
 import org.apache.flink.util.ExceptionUtils;
 import org.slf4j.Logger;
 
@@ -54,11 +46,7 @@ import scala.concurrent.Future;
 import scala.concurrent.duration.FiniteDuration;
 
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -113,7 +101,6 @@ public class Execution implements Serializable {
 
 	private final FiniteDuration timeout;
 
-	private ConcurrentLinkedQueue<PartialPartitionInfo> partialPartitionInfos;
 
 	private volatile ExecutionState state = CREATED;
 	
@@ -123,8 +110,6 @@ public class Execution implements Serializable {
 	
 	private volatile InstanceConnectionInfo assignedResourceLocation; // for the archived execution
 	
-	private StateHandle operatorState;
-
 	// --------------------------------------------------------------------------------------------
 	
 	public Execution(ExecutionVertex vertex, int attemptNumber, long startTimestamp, FiniteDuration timeout) {
@@ -139,8 +124,6 @@ public class Execution implements Serializable {
 		markTimestamp(ExecutionState.CREATED, startTimestamp);
 
 		this.timeout = timeout;
-
-		this.partialPartitionInfos = new ConcurrentLinkedQueue<PartialPartitionInfo>();
 	}
 	
 	// --------------------------------------------------------------------------------------------
@@ -195,9 +178,6 @@ public class Execution implements Serializable {
 			throw new IllegalStateException("Cannot archive Execution while the assigned resource is still running.");
 		}
 		assignedResource = null;
-
-		partialPartitionInfos.clear();
-		partialPartitionInfos = null;
 	}
 	
 	// --------------------------------------------------------------------------------------------
@@ -209,16 +189,14 @@ public class Execution implements Serializable {
 	 *       to be scheduled immediately and no resource is available. If the task is accepted by the schedule, any
 	 *       error sets the vertex state to failed and triggers the recovery logic.
 	 * 
-	 * @param scheduler The scheduler to use to schedule this execution attempt.
-	 * @param queued Flag to indicate whether the scheduler may queue this task if it cannot
-	 *               immediately deploy it.
+	 * @param scheduler
 	 * 
 	 * @throws IllegalStateException Thrown, if the vertex is not in CREATED state, which is the only state that permits scheduling.
 	 * @throws NoResourceAvailableException Thrown is no queued scheduling is allowed and no resources are currently available.
 	 */
 	public boolean scheduleForExecution(Scheduler scheduler, boolean queued) throws NoResourceAvailableException {
 		if (scheduler == null) {
-			throw new IllegalArgumentException("Cannot send null Scheduler when scheduling execution.");
+			throw new NullPointerException();
 		}
 
 		final SlotSharingGroup sharingGroup = vertex.getJobVertex().getSlotSharingGroup();
@@ -284,7 +262,7 @@ public class Execution implements Serializable {
 			throw new NullPointerException();
 		}
 		if (!slot.isAlive()) {
-			throw new JobException("Target slot for deployment is not alive.");
+			throw new JobException("Traget slot for deployment is not alive.");
 		}
 
 		// make sure exactly one deployment call happens from the correct state
@@ -335,34 +313,24 @@ public class Execution implements Serializable {
 				@Override
 				public void onComplete(Throwable failure, Object success) throws Throwable {
 					if (failure != null) {
-						if (failure instanceof TimeoutException) {
-							markFailed(new Exception("Cannot deploy task - TaskManager not responding.", failure));
-						}
-						else {
-							markFailed(failure);
-						}
+						markFailed(failure);
 					}
 					else {
+						TaskManagerMessages.TaskOperationResult result = (TaskManagerMessages.TaskOperationResult) success;
 						if (success == null) {
 							markFailed(new Exception("Failed to deploy the task to slot " + slot + ": TaskOperationResult was null"));
 						}
-
-						if (success instanceof TaskOperationResult) {
-							TaskOperationResult result = (TaskOperationResult) success;
-
-							if (!result.executionID().equals(attemptId)) {
-								markFailed(new Exception("Answer execution id does not match the request execution id."));
-							} else if (result.success()) {
-								switchToRunning();
-							} else {
-								// deployment failed :(
-								markFailed(new Exception("Failed to deploy the task " +
-										getVertexWithAttempt() + " to slot " + slot + ": " + result
-										.description()));
-							}
-						} else {
-							markFailed(new Exception("Failed to deploy the task to slot " + slot +
-									": Response was not of type TaskOperationResult"));
+						else if (!result.executionID().equals(attemptId)) {
+							markFailed(new Exception("Answer execution id does not match the request execution id."));
+						}
+						else if (result.success()) {
+							switchToRunning();
+						}
+						else {
+							// deployment failed :(
+							markFailed(new Exception("Failed to deploy the task " +
+									getVertexWithAttempt() + " to slot " + slot + ": " + result
+									.description()));
 						}
 					}
 				}
@@ -433,9 +401,11 @@ public class Execution implements Serializable {
 	}
 
 	// TODO This leads to many unnecessary RPC calls in most cases
-	void scheduleOrUpdateConsumers(List<List<ExecutionEdge>> consumers) {
+	boolean scheduleOrUpdateConsumers(List<List<ExecutionEdge>> consumers) throws Exception {
+		boolean success = true;
+
 		if (consumers.size() != 1) {
-			fail(new IllegalStateException("Only one consumer is supported currently."));
+			throw new IllegalStateException("Only one consumer is supported currently.");
 		}
 
 		final List<ExecutionEdge> consumer = consumers.get(0);
@@ -446,66 +416,32 @@ public class Execution implements Serializable {
 			final ExecutionState consumerState = consumerVertex.getExecutionState();
 
 			if (consumerState == CREATED) {
-				consumerVertex.cachePartitionInfo(PartialPartitionInfo.fromEdge(edge));
-
-				future(new Callable<Boolean>(){
-					@Override
-					public Boolean call() throws Exception {
-						try {
-							consumerVertex.scheduleForExecution(
-								consumerVertex.getExecutionGraph().getScheduler(), false);
-						} catch (Throwable t) {
-							fail(new IllegalStateException("Could not schedule consumer " +
-									"vertex " + consumerVertex, t));
-						}
-
-						return true;
+				if (state == RUNNING) {
+					if (!consumerVertex.scheduleForExecution(consumerVertex.getExecutionGraph().getScheduler(), false)) {
+						success = false;
 					}
-				}, AkkaUtils.globalExecutionContext());
-
-				// double check to resolve race conditions
-				if(consumerVertex.getExecutionState() == RUNNING){
-					consumerVertex.sendPartitionInfos();
+				}
+				else {
+					success = false;
 				}
 			}
 			else if (consumerState == RUNNING) {
 				SimpleSlot consumerSlot = consumerVertex.getCurrentAssignedResource();
-				ExecutionAttemptID consumerExecutionId = consumerVertex.
-						getCurrentExecutionAttempt().getAttemptId();
+				ExecutionAttemptID consumerExecutionId = consumerVertex.getCurrentExecutionAttempt().getAttemptId();
 
-				IntermediateResultPartitionID partitionID = edge.getSource().getPartitionId();
-				int connectionIndex = edge.getSource().getIntermediateResult().getConnectionIndex();
+				PartitionInfo partitionInfo = PartitionInfo.fromEdge(edge, consumerSlot);
 
-				PartitionInfo.PartitionLocation producerLocation;
-				RemoteAddress producerAddress = null;
-
-				if(consumerSlot.getInstance().getInstanceConnectionInfo().equals(
-						getAssignedResourceLocation())) {
-					producerLocation = PartitionInfo.PartitionLocation.LOCAL;
-				} else {
-					producerLocation = PartitionInfo.PartitionLocation.REMOTE;
-					producerAddress = new RemoteAddress(getAssignedResourceLocation(),
-							connectionIndex);
+				if (!sendUpdateTaskRpcCall(consumerSlot, consumerExecutionId, edge.getSource().getIntermediateResult().getId(), partitionInfo)) {
+					success = false;
 				}
 
-				PartitionInfo partitionInfo = new PartitionInfo(partitionID, attemptId,
-						producerLocation, producerAddress);
-
-				TaskManagerMessages.UpdateTask updateTaskMessage =
-						new TaskManagerMessages.UpdateTaskSinglePartitionInfo(consumerExecutionId,
-								edge.getSource().getIntermediateResult().getId(), partitionInfo);
-
-				sendUpdateTaskRpcCall(consumerSlot, updateTaskMessage);
 			}
 			else if (consumerState == SCHEDULED || consumerState == DEPLOYING) {
-				consumerVertex.cachePartitionInfo(PartialPartitionInfo.fromEdge(edge));
-
-				// double check to resolve race conditions
-				if(consumerVertex.getExecutionState() == RUNNING){
-					consumerVertex.sendPartitionInfos();
-				}
+				success = false;
 			}
 		}
+
+		return success;
 	}
 
 	/**
@@ -612,33 +548,6 @@ public class Execution implements Serializable {
 		}
 	}
 
-	void cachePartitionInfo(PartialPartitionInfo partitionInfo) {
-		partialPartitionInfos.add(partitionInfo);
-	}
-
-	void sendPartitionInfos() {
-		// check if the ExecutionVertex has already been archived and thus cleared the
-		// partial partition infos queue
-		if(partialPartitionInfos != null && !partialPartitionInfos.isEmpty()) {
-
-			PartialPartitionInfo partialPartitionInfo;
-
-			List<IntermediateDataSetID> resultIDs = new ArrayList<IntermediateDataSetID>();
-			List<PartitionInfo> partitionInfos = new ArrayList<PartitionInfo>();
-
-			while ((partialPartitionInfo = partialPartitionInfos.poll()) != null) {
-				resultIDs.add(partialPartitionInfo.getIntermediateDataSetID());
-				partitionInfos.add(partialPartitionInfo.createPartitionInfo(this));
-			}
-
-			TaskManagerMessages.UpdateTask updateTaskMessage =
-					TaskManagerMessages.createUpdateTaskMultiplePartitionInfos(attemptId, resultIDs,
-							partitionInfos);
-
-			sendUpdateTaskRpcCall(assignedResource, updateTaskMessage);
-		}
-	}
-
 	// --------------------------------------------------------------------------------------------
 	//  Internal Actions
 	// --------------------------------------------------------------------------------------------
@@ -705,7 +614,6 @@ public class Execution implements Serializable {
 	private boolean switchToRunning() {
 
 		if (transitionState(DEPLOYING, RUNNING)) {
-			sendPartitionInfos();
 			return true;
 		}
 		else {
@@ -748,64 +656,65 @@ public class Execution implements Serializable {
 
 	private void sendCancelRpcCall() {
 		final SimpleSlot slot = this.assignedResource;
+		if (slot == null) {
+			return;
+		}
 
-		if (slot != null) {
+		Future<Object> cancelResult = AkkaUtils.retry(slot.getInstance().getTaskManager(), new
+						TaskManagerMessages.CancelTask(attemptId), NUM_CANCEL_CALL_TRIES,
+				AkkaUtils.globalExecutionContext(), timeout);
 
-			Future<Object> cancelResult = AkkaUtils.retry(slot.getInstance().getTaskManager(), new
-							TaskManagerMessages.CancelTask(attemptId), NUM_CANCEL_CALL_TRIES,
-					AkkaUtils.globalExecutionContext(), timeout);
+		cancelResult.onComplete(new OnComplete<Object>(){
 
-			cancelResult.onComplete(new OnComplete<Object>() {
-
-				@Override
-				public void onComplete(Throwable failure, Object success) throws Throwable {
-					if (failure != null) {
-						fail(new Exception("Task could not be canceled.", failure));
-					} else {
-						TaskOperationResult result = (TaskOperationResult) success;
-						if (!result.success()) {
-							LOG.debug("Cancel task call did not find task. Probably akka message call" +
-									" race.");
-						}
+			@Override
+			public void onComplete(Throwable failure, Object success) throws Throwable {
+				if(failure != null){
+					fail(new Exception("Task could not be canceled.", failure));
+				}else{
+					TaskManagerMessages.TaskOperationResult result = (TaskManagerMessages.TaskOperationResult)success;
+					if(!result.success()){
+						LOG.debug("Cancel task call did not find task. Probably akka message call" +
+								" race.");
 					}
 				}
-			}, AkkaUtils.globalExecutionContext());
-		}
+			}
+		}, AkkaUtils.globalExecutionContext());
 	}
 
 	private void sendFailIntermediateResultPartitionsRPCCall() {
 		final SimpleSlot slot = this.assignedResource;
+		if (slot == null) {
+			return;
+		}
 
-		if (slot != null) {
-			final Instance instance = slot.getInstance();
+		final Instance instance = slot.getInstance();
 
-			if (instance.isAlive()) {
-				try {
-					// TODO For some tests this could be a problem when querying too early if all resources were released
-					instance.getTaskManager().tell(new TaskManagerMessages.FailIntermediateResultPartitions(attemptId), ActorRef.noSender());
-				} catch (Throwable t) {
-					fail(new Exception("Intermediate result partition could not be failed.", t));
-				}
+		if (instance.isAlive()) {
+			try {
+				// TODO For some tests this could be a problem when querying too early if all resources were released
+				instance.getTaskManager().tell(new TaskManagerMessages.FailIntermediateResultPartitions(attemptId), ActorRef.noSender());
+			}
+			catch (Throwable t) {
+				fail(new Exception("Intermediate result partition could not be failed.", t));
 			}
 		}
 	}
 
-	private void sendUpdateTaskRpcCall(final SimpleSlot consumerSlot,
-									final TaskManagerMessages.UpdateTask updateTaskMsg) {
-		if (consumerSlot != null) {
-			final Instance instance = consumerSlot.getInstance();
+	private boolean sendUpdateTaskRpcCall(final SimpleSlot consumerSlot, final ExecutionAttemptID executionId, final IntermediateDataSetID resultId, final PartitionInfo partitionInfo) throws Exception {
+		final Instance instance = consumerSlot.getInstance();
 
-			Future<Object> futureUpdate = Patterns.ask(instance.getTaskManager(), updateTaskMsg,
-					new Timeout(timeout));
+		final TaskManagerMessages.TaskOperationResult result = AkkaUtils.ask(
+				instance.getTaskManager(), new TaskManagerMessages.UpdateTask(executionId, resultId, partitionInfo), timeout);
 
-			futureUpdate.onFailure(new OnFailure() {
-				@Override
-				public void onFailure(Throwable failure) throws Throwable {
-					fail(new IllegalStateException("Update task on instance " + instance +
-							" failed due to:", failure));
-				}
-			}, AkkaUtils.globalExecutionContext());
+		if (!result.success()) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Update task {} was unsuccessful (maybe an RPC race): {}", executionId, result.description());
+			}
+
+			return false;
 		}
+
+		return true;
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -819,11 +728,6 @@ public class Execution implements Serializable {
 	private boolean transitionState(ExecutionState currentState, ExecutionState targetState, Throwable error) {
 		if (STATE_UPDATER.compareAndSet(this, currentState, targetState)) {
 			markTimestamp(targetState);
-
-			if (LOG.isDebugEnabled()) {
-				LOG.debug("{} ({}) switched from {} to {}.",this.getVertex().getTaskName(),
-						getAttemptId(),  currentState, targetState);
-			}
 
 			// make sure that the state transition completes normally.
 			// potential errors (in listeners may not affect the main logic)
@@ -855,13 +759,5 @@ public class Execution implements Serializable {
 	public String toString() {
 		return String.format("Attempt #%d (%s) @ %s - [%s]", attemptNumber, vertex.getSimpleName(),
 				(assignedResource == null ? "(unassigned)" : assignedResource.toString()), state);
-	}
-
-	public void setOperatorState(StateHandle operatorStates) {
-		this.operatorState = operatorStates;
-	}
-
-	public StateHandle getOperatorState() {
-		return operatorState;
 	}
 }

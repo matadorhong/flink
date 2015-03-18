@@ -17,13 +17,9 @@
 
 package org.apache.flink.streaming.api.windowing.policy;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.streaming.api.windowing.extractor.Extractor;
 import org.apache.flink.streaming.api.windowing.extractor.FieldFromTuple;
 import org.junit.Test;
 
@@ -100,33 +96,6 @@ public class PunctuationPolicyTest {
 					i + 1, policy.notifyEviction(new Tuple2<Object, Object>(new TestObject(0),
 							new TestObject(1)), (triggered = !triggered), 0));
 		}
-	}
-
-	@Test
-	public void testEquals() {
-		Extractor<Integer, Integer> extractor = new Extractor<Integer, Integer>() {
-			private static final long serialVersionUID = 1L;
-
-			@Override
-			public Integer extract(Integer in) {
-				return in;
-			}
-		};
-
-		assertEquals(new PunctuationPolicy<Integer, Integer>(4),
-				new PunctuationPolicy<Integer, Integer>(4));
-		assertNotEquals(new PunctuationPolicy<Integer, Integer>(4),
-				new PunctuationPolicy<Integer, Integer>(5));
-
-		assertNotEquals(new PunctuationPolicy<Integer, Integer>(4, extractor),
-				new PunctuationPolicy<Integer, Integer>(4));
-
-		assertEquals(new PunctuationPolicy<Integer, Integer>(4, extractor),
-				new PunctuationPolicy<Integer, Integer>(4, extractor));
-
-		assertNotEquals(new PunctuationPolicy<Integer, Integer>(4),
-				new PunctuationPolicy<Integer, Integer>(4, extractor));
-
 	}
 
 	private class TestObject {

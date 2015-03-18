@@ -37,7 +37,7 @@ import akka.dispatch.Futures;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.flink.runtime.akka.AkkaUtils;
-import org.apache.flink.util.AbstractID;
+import org.apache.flink.runtime.AbstractID;
 import org.apache.flink.runtime.instance.SharedSlot;
 import org.apache.flink.runtime.instance.SimpleSlot;
 import org.slf4j.Logger;
@@ -102,6 +102,38 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 		}
 	}
 
+	/**
+	 * 
+	 * NOTE: In the presence of multi-threaded operations, this number may be inexact.
+	 * 
+	 * @return The number of empty slots, for tasks.
+	 */
+	public int getNumberOfAvailableSlots() {
+		int count = 0;
+		
+		synchronized (globalLock) {
+			for (Instance instance : instancesWithAvailableResources) {
+				count += instance.getNumberOfAvailableSlots();
+			}
+		}
+		
+		return count;
+	}
+	
+	public int getTotalNumberOfSlots() {
+		int count = 0;
+		
+		synchronized (globalLock) {
+			for (Instance instance : allInstances) {
+				if (instance.isAlive()) {
+					count += instance.getTotalNumberOfSlots();
+				}
+			}
+		}
+		
+		return count;
+	}
+	
 	// --------------------------------------------------------------------------------------------
 	//  Scheduling
 	// --------------------------------------------------------------------------------------------
@@ -177,8 +209,7 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 				}
 
 				SimpleSlot newSlot = null;
-				SimpleSlot toUse = null;
-
+				
 				// the following needs to make sure any allocated slot is released in case of an error
 				try {
 					
@@ -197,6 +228,8 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 					// get a new slot, since we could not place it into the group, or we could not place it locally
 					newSlot = getFreeSubSlotForTask(vertex, locations, assignment, constraint, forceExternalLocation);
 
+					SimpleSlot toUse;
+					
 					if (newSlot == null) {
 						if (slotFromGroup == null) {
 							// both null
@@ -250,6 +283,7 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 					}
 					
 					updateLocalityCounters(toUse.getLocality());
+					return toUse;
 				}
 				catch (NoResourceAvailableException e) {
 					throw e;
@@ -261,13 +295,13 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 					if (newSlot != null) {
 						newSlot.releaseSlot();
 					}
-
+					
 					ExceptionUtils.rethrow(t, "An error occurred while allocating a slot in a sharing group");
 				}
-
-				return toUse;
-			} else {
-				// 2) === schedule without hints and sharing ===
+			}
+		
+			// 2) === schedule without hints and sharing ===
+			{
 				SimpleSlot slot = getFreeSlotForTask(vertex, preferredLocations, forceExternalLocation);
 				if (slot != null) {
 					updateLocalityCounters(slot.getLocality());
@@ -398,23 +432,17 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 				// root SharedSlot
 				SharedSlot sharedSlot = instanceToUse.allocateSharedSlot(vertex.getJobId(), groupAssignment, groupID);
 
+				// If constraint != null, then slot nested in a SharedSlot nested in sharedSlot
+				// If constraint == null, then slot nested in sharedSlot
+				SimpleSlot slot = groupAssignment.addSharedSlotAndAllocateSubSlot(sharedSlot, locality, groupID, constraint);
+
 				// if the instance has further available slots, re-add it to the set of available resources.
 				if (instanceToUse.hasResourcesAvailable()) {
 					this.instancesWithAvailableResources.add(instanceToUse);
 				}
 
-				if(sharedSlot != null){
-					// If constraint != null, then slot nested in a SharedSlot nested in sharedSlot
-					// If constraint == null, then slot nested in sharedSlot
-					SimpleSlot slot = groupAssignment.addSharedSlotAndAllocateSubSlot(sharedSlot,
-							locality, groupID, constraint);
-
-					if(slot != null){
-						return slot;
-					} else {
-						// release shared slot
-						sharedSlot.releaseSlot();
-					}
+				if (slot != null) {
+					return slot;
 				}
 			}
 			catch (InstanceDiedException e) {
@@ -664,40 +692,6 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 	//  Status reporting
 	// --------------------------------------------------------------------------------------------
 
-	/**
-	 *
-	 * NOTE: In the presence of multi-threaded operations, this number may be inexact.
-	 *
-	 * @return The number of empty slots, for tasks.
-	 */
-	public int getNumberOfAvailableSlots() {
-		int count = 0;
-
-		synchronized (globalLock) {
-			processNewlyAvailableInstances();
-
-			for (Instance instance : instancesWithAvailableResources) {
-				count += instance.getNumberOfAvailableSlots();
-			}
-		}
-
-		return count;
-	}
-
-	public int getTotalNumberOfSlots() {
-		int count = 0;
-
-		synchronized (globalLock) {
-			for (Instance instance : allInstances) {
-				if (instance.isAlive()) {
-					count += instance.getTotalNumberOfSlots();
-				}
-			}
-		}
-
-		return count;
-	}
-
 	public int getNumberOfAvailableInstances() {
 		int numberAvailableInstances = 0;
 		synchronized (this.globalLock) {
@@ -712,11 +706,7 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 	}
 	
 	public int getNumberOfInstancesWithAvailableSlots() {
-		synchronized (globalLock) {
-			processNewlyAvailableInstances();
-
-			return instancesWithAvailableResources.size();
-		}
+		return instancesWithAvailableResources.size();
 	}
 	
 	public Map<String, List<Instance>> getInstancesByHost() {
@@ -743,18 +733,6 @@ public class Scheduler implements InstanceListener, SlotAvailabilityListener {
 	}
 	
 	// --------------------------------------------------------------------------------------------
-
-	private void processNewlyAvailableInstances() {
-		synchronized (globalLock) {
-			Instance instance;
-
-			while((instance = newlyAvailableInstances.poll()) != null){
-				if(instance.hasResourcesAvailable()){
-					instancesWithAvailableResources.add(instance);
-				}
-			}
-		}
-	}
 	
 	private static final class QueuedTask {
 		

@@ -29,8 +29,6 @@ import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
 import org.apache.flink.runtime.instance.SimpleSlot;
 import org.apache.flink.runtime.io.network.RemoteAddress;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -42,8 +40,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * channel to request a partition at runtime.
  */
 public class PartitionInfo implements IOReadableWritable, Serializable {
-
-	private static Logger LOG = LoggerFactory.getLogger(PartitionInfo.class);
 
 	public enum PartitionLocation {
 		LOCAL, REMOTE, UNKNOWN
@@ -134,8 +130,7 @@ public class PartitionInfo implements IOReadableWritable, Serializable {
 
 		// The producer needs to be running, otherwise the consumer might request a partition,
 		// which has not been registered yet.
-		if (producerSlot != null && (producerState == ExecutionState.RUNNING ||
-			producerState == ExecutionState.FINISHED)) {
+		if (producerSlot != null && producerState == ExecutionState.RUNNING) {
 			if (producerSlot.getInstance().equals(consumerSlot.getInstance())) {
 				producerLocation = PartitionLocation.LOCAL;
 			}
@@ -147,12 +142,7 @@ public class PartitionInfo implements IOReadableWritable, Serializable {
 			}
 		}
 
-		PartitionInfo partitionInfo = new PartitionInfo(partitionId, producerExecutionId,
-				producerLocation, producerAddress);
-
-		LOG.debug("Create partition info {}.", partitionInfo);
-
-		return partitionInfo;
+		return new PartitionInfo(partitionId, producerExecutionId, producerLocation, producerAddress);
 	}
 
 	public static PartitionInfo[] fromEdges(ExecutionEdge[] edges, SimpleSlot consumerSlot) {
@@ -165,12 +155,5 @@ public class PartitionInfo implements IOReadableWritable, Serializable {
 		}
 
 		return partitions;
-	}
-
-	@Override
-	public String toString() {
-		return String.format("PartitionInfo(PartitionID: %s, ProducerID: %s, " +
-				"ProducerLocation: %s, ProducerAddress: %s)", partitionId, producerExecutionId,
-				producerLocation, producerAddress);
 	}
 }

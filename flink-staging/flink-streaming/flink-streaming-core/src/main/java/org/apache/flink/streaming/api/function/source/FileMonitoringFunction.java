@@ -39,10 +39,8 @@ public class FileMonitoringFunction implements SourceFunction<Tuple3<String, Lon
 
 	public enum WatchType {
 		ONLY_NEW_FILES, // Only new files will be processed.
-		REPROCESS_WITH_APPENDED, // When some files are appended, all contents
-									// of the files will be processed.
-		PROCESS_ONLY_APPENDED // When some files are appended, only appended
-								// contents will be processed.
+		REPROCESS_WITH_APPENDED, // When some files are appended, all contents of the files will be processed.
+		PROCESS_ONLY_APPENDED // When some files are appended, only appended contents will be processed.
 	}
 
 	private String path;
@@ -53,8 +51,6 @@ public class FileMonitoringFunction implements SourceFunction<Tuple3<String, Lon
 	private Map<String, Long> offsetOfFiles;
 	private Map<String, Long> modificationTimes;
 
-	private volatile boolean isRunning = false;
-
 	public FileMonitoringFunction(String path, long interval, WatchType watchType) {
 		this.path = path;
 		this.interval = interval;
@@ -64,11 +60,10 @@ public class FileMonitoringFunction implements SourceFunction<Tuple3<String, Lon
 	}
 
 	@Override
-	public void run(Collector<Tuple3<String, Long, Long>> collector) throws Exception {
-		isRunning = true;
+	public void invoke(Collector<Tuple3<String, Long, Long>> collector) throws Exception {
 		fileSystem = FileSystem.get(new URI(path));
 
-		while (isRunning) {
+		while (true) {
 			List<String> files = listNewFiles();
 			for (String filePath : files) {
 				if (watchType == WatchType.ONLY_NEW_FILES
@@ -124,10 +119,5 @@ public class FileMonitoringFunction implements SourceFunction<Tuple3<String, Lon
 				return lastModification >= modificationTime;
 			}
 		}
-	}
-
-	@Override
-	public void cancel() {
-		isRunning = false;
 	}
 }

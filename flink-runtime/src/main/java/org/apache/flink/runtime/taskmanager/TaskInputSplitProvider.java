@@ -20,9 +20,8 @@ package org.apache.flink.runtime.taskmanager;
 
 import akka.actor.ActorRef;
 
-import akka.pattern.Patterns;
-import akka.util.Timeout;
 import org.apache.flink.core.io.InputSplit;
+import org.apache.flink.runtime.akka.AkkaUtils;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.jobgraph.JobID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
@@ -31,8 +30,6 @@ import org.apache.flink.runtime.messages.JobManagerMessages;
 import org.apache.flink.runtime.messages.TaskManagerMessages;
 import org.apache.flink.util.InstantiationUtil;
 
-import scala.concurrent.Await;
-import scala.concurrent.Future;
 import scala.concurrent.duration.FiniteDuration;
 
 public class TaskInputSplitProvider implements InputSplitProvider {
@@ -64,29 +61,14 @@ public class TaskInputSplitProvider implements InputSplitProvider {
 	@Override
 	public InputSplit getNextInputSplit() {
 		try {
-			final Future<Object> response = Patterns.ask(jobManager,
-					new JobManagerMessages.RequestNextInputSplit(jobId, vertexId, executionID),
-					new Timeout(timeout));
+			TaskManagerMessages.NextInputSplit nextInputSplit = AkkaUtils.ask(jobManager,
+					new JobManagerMessages.RequestNextInputSplit(jobId, vertexId, executionID), timeout);
 
-			final Object result = Await.result(response, timeout);
-
-			if (result == null) {
-				return null;
-			}
-
-			if(!(result instanceof TaskManagerMessages.NextInputSplit)){
-				throw new RuntimeException("RequestNextInputSplit requires a response of type " +
-						"NextInputSplit. Instead response is of type " + result.getClass() + ".");
-			} else {
-				final TaskManagerMessages.NextInputSplit nextInputSplit =
-						(TaskManagerMessages.NextInputSplit) result;
-
-				byte[] serializedData = nextInputSplit.splitData();
-				Object deserialized = InstantiationUtil.deserializeObject(serializedData,
-						usercodeClassLoader);
-				return (InputSplit) deserialized;
-			}
-		} catch (Exception e) {
+			byte[] serializedData = nextInputSplit.splitData();
+			Object deserialized = InstantiationUtil.deserializeObject(serializedData, usercodeClassLoader);
+			return (InputSplit) deserialized;
+		}
+		catch (Exception e) {
 			throw new RuntimeException("Requesting the next InputSplit failed.", e);
 		}
 	}

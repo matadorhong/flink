@@ -26,25 +26,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * This is the abstract base class for every task that can be executed ba a TaskManager.
- * Concrete tasks like the stream vertices of the batch tasks
- * (see {@link org.apache.flink.runtime.operators.RegularPactTask}) inherit from this class.
- *
- * The TaskManager invokes the methods {@link #registerInputOutput()} and {@link #invoke()} in
- * this order when executing a task. The first method is responsible for setting up input and
- * output stream readers and writers, the second method contains the task's core operation.
+ * Abstract base class for every task class in Flink.
  */
 public abstract class AbstractInvokable {
 
 	private static final Logger LOG = LoggerFactory.getLogger(AbstractInvokable.class);
 
 
-	/** The environment assigned to this invokable. */
+	/**
+	 * The environment assigned to this invokable.
+	 */
 	private volatile Environment environment;
-
-	/** The execution config, cached from the deserialization from the JobConfiguration */
-	private ExecutionConfig executionConfig;
-
 
 	/**
 	 * Must be overwritten by the concrete task to instantiate the required record reader and record writer.
@@ -56,7 +48,7 @@ public abstract class AbstractInvokable {
 	 * when the actual execution of the task starts.
 	 * 
 	 * @throws Exception
-	 *         Tasks may forward their exceptions for the TaskManager to handle through failure/recovery.
+	 *         thrown if any exception occurs during the execution of the tasks
 	 */
 	public abstract void invoke() throws Exception;
 
@@ -94,7 +86,7 @@ public abstract class AbstractInvokable {
 	 * 
 	 * @return the current number of subtasks the respective task is split into
 	 */
-	public int getCurrentNumberOfSubtasks() {
+	public final int getCurrentNumberOfSubtasks() {
 		return this.environment.getNumberOfSubtasks();
 	}
 
@@ -103,7 +95,7 @@ public abstract class AbstractInvokable {
 	 * 
 	 * @return the index of this subtask in the subtask group
 	 */
-	public int getIndexInSubtaskGroup() {
+	public final int getIndexInSubtaskGroup() {
 		return this.environment.getIndexInSubtaskGroup();
 	}
 
@@ -112,7 +104,7 @@ public abstract class AbstractInvokable {
 	 * 
 	 * @return the task configuration object which was attached to the original {@link org.apache.flink.runtime.jobgraph.AbstractJobVertex}
 	 */
-	public Configuration getTaskConfiguration() {
+	public final Configuration getTaskConfiguration() {
 		return this.environment.getTaskConfiguration();
 	}
 
@@ -121,31 +113,25 @@ public abstract class AbstractInvokable {
 	 * 
 	 * @return the job configuration object which was attached to the original {@link org.apache.flink.runtime.jobgraph.JobGraph}
 	 */
-	public Configuration getJobConfiguration() {
+	public final Configuration getJobConfiguration() {
 		return this.environment.getJobConfiguration();
 	}
 
 	/**
-	 * Returns the global ExecutionConfig, obtained from the job configuration.
+	 * Returns the global ExecutionConfig.
 	 */
 	public ExecutionConfig getExecutionConfig() {
-		if (executionConfig != null) {
-			return executionConfig;
-		}
-
 		try {
-			executionConfig = (ExecutionConfig) InstantiationUtil.readObjectFromConfig(
+			ExecutionConfig c = (ExecutionConfig) InstantiationUtil.readObjectFromConfig(
 					getJobConfiguration(),
 					ExecutionConfig.CONFIG_KEY,
-					getUserCodeClassLoader());
-
-			if (executionConfig == null) {
-				LOG.warn("Environment did not contain an ExecutionConfig - using a default config.");
-				executionConfig = new ExecutionConfig();
+					this.getClass().getClassLoader());
+			if (c != null) {
+				return c;
+			} else {
+				return new ExecutionConfig();
 			}
-			return executionConfig;
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			LOG.warn("Could not load ExecutionConfig from Environment, returning default ExecutionConfig: {}", e);
 			return new ExecutionConfig();
 		}

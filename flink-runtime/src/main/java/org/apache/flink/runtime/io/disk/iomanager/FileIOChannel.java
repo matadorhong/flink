@@ -84,33 +84,24 @@ public interface FileIOChannel {
 		
 		private static final int RANDOM_BYTES_LENGTH = 16;
 		
-		private final File path;
+		private final String path;
 		
 		private final int threadNum;
 
-		protected ID(File path, int threadNum) {
+		protected ID(String path, int threadNum) {
 			this.path = path;
 			this.threadNum = threadNum;
 		}
 
-		protected ID(File basePath, int threadNum, Random random) {
-			this.path = new File(basePath, randomString(random) + ".channel");
+		protected ID(String basePath, int threadNum, Random random) {
+			this.path = basePath + File.separator + randomString(random) + ".channel";
 			this.threadNum = threadNum;
 		}
 
 		/**
 		 * Returns the path to the underlying temporary file.
-		 * @return The path to the underlying temporary file..
 		 */
 		public String getPath() {
-			return path.getAbsolutePath();
-		}
-
-		/**
-		 * Returns the path to the underlying temporary file as a File.
-		 * @return The path to the underlying temporary file as a File.
-		 */
-		public File getPathFile() {
 			return path;
 		}
 		
@@ -135,11 +126,11 @@ public interface FileIOChannel {
 		
 		@Override
 		public String toString() {
-			return path.getAbsolutePath();
+			return path;
 		}
 		
-		private static String randomString(Random random) {
-			byte[] bytes = new byte[RANDOM_BYTES_LENGTH];
+		private static final String randomString(final Random random) {
+			final byte[] bytes = new byte[RANDOM_BYTES_LENGTH];
 			random.nextBytes(bytes);
 			return StringUtils.byteToHexString(bytes);
 		}
@@ -149,23 +140,24 @@ public interface FileIOChannel {
 	 * An enumerator for channels that logically belong together.
 	 */
 	public static final class Enumerator {
+		
+		private static final String FORMAT = "%s%s%s.%06d.channel";
 
-		private final File[] paths;
+		private final String[] paths;
 		
 		private final String namePrefix;
 
 		private int counter;
 
-		protected Enumerator(File[] basePaths, Random random) {
+		protected Enumerator(String[] basePaths, Random random) {
 			this.paths = basePaths;
 			this.namePrefix = ID.randomString(random);
 			this.counter = 0;
 		}
 
 		public ID next() {
-			int threadNum = counter % paths.length;
-			String filename = String.format("%s.%06d.channel", namePrefix, (counter++));
-			return new ID(new File(paths[threadNum], filename), threadNum);
+			final int threadNum = counter % paths.length;
+			return new ID(String.format(FORMAT, this.paths[threadNum], File.separator, namePrefix, (counter++)), threadNum);
 		}
 	}
 }

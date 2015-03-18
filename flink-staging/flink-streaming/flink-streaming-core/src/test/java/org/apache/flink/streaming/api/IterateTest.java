@@ -69,10 +69,6 @@ public class IterateTest {
 		public void invoke(Boolean tuple) {
 		}
 
-		@Override
-		public void cancel() {
-		}
-
 	}
 
 	@Test

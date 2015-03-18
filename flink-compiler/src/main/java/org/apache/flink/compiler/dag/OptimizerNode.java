@@ -1151,8 +1151,7 @@ public abstract class OptimizerNode implements Visitable<OptimizerNode>, Estimat
 
 		int i = 1; 
 		for (PactConnection conn : getIncomingConnections()) {
-			String shipStrategyName = conn.getShipStrategy() == null ? "null" : conn.getShipStrategy().name();
-			bld.append('(').append(i++).append(":").append(shipStrategyName).append(')');
+			bld.append('(').append(i++).append(":").append(conn.getShipStrategy() == null ? "null" : conn.getShipStrategy().name()).append(')');
 		}
 
 		return bld.toString();

@@ -68,17 +68,12 @@ public class SortMergeJoinDescriptor extends AbstractJoinDescriptor {
 		Ordering prod1 = produced1.getOrdering();
 		Ordering prod2 = produced2.getOrdering();
 		
-		if (prod1 == null || prod2 == null) {
+		if (prod1 == null || prod2 == null || prod1.getNumberOfFields() < numRelevantFields ||
+				prod2.getNumberOfFields() < prod2.getNumberOfFields())
+		{
 			throw new CompilerException("The given properties do not meet this operators requirements.");
 		}
-
-		// check that order of fields is equivalent
-		if (!checkEquivalentFieldPositionsInKeyFields(
-				prod1.getInvolvedIndexes(), prod2.getInvolvedIndexes(), numRelevantFields)) {
-			return false;
-		}
-
-		// check that both inputs have the same directions of order
+			
 		for (int i = 0; i < numRelevantFields; i++) {
 			if (prod1.getOrder(i) != prod2.getOrder(i)) {
 				return false;

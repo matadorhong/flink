@@ -20,8 +20,8 @@ package org.apache.flink.runtime.io.network.partition.consumer;
 
 import org.apache.flink.runtime.event.task.TaskEvent;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
-import org.apache.flink.runtime.io.network.ConnectionManager;
 import org.apache.flink.runtime.io.network.RemoteAddress;
+import org.apache.flink.runtime.io.network.api.reader.BufferReader;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.BufferProvider;
 import org.apache.flink.runtime.io.network.netty.PartitionRequestClient;
@@ -35,7 +35,6 @@ import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 /**
@@ -59,25 +58,21 @@ public class RemoteInputChannel extends InputChannel {
 
 	private int expectedSequenceNumber = 0;
 
-	private ConnectionManager connectionManager;
-
 	public RemoteInputChannel(
-			SingleInputGate gate,
 			int channelIndex,
 			ExecutionAttemptID producerExecutionId,
 			IntermediateResultPartitionID partitionId,
-			RemoteAddress producerAddress,
-			ConnectionManager connectionManager) {
+			BufferReader reader,
+			RemoteAddress producerAddress) {
 
-		super(gate, channelIndex, producerExecutionId, partitionId);
+		super(channelIndex, producerExecutionId, partitionId, reader);
 
 		/**
 		 * This ID is used by the {@link PartitionRequestClient} to distinguish
 		 * between receivers, which share the same TCP connection.
 		 */
 		this.id = new InputChannelID();
-		this.producerAddress = checkNotNull(producerAddress);
-		this.connectionManager = checkNotNull(connectionManager);
+		this.producerAddress = producerAddress;
 	}
 
 	// ------------------------------------------------------------------------
@@ -85,11 +80,13 @@ public class RemoteInputChannel extends InputChannel {
 	// ------------------------------------------------------------------------
 
 	@Override
-	public void requestIntermediateResultPartition(int queueIndex) throws IOException, InterruptedException {
+	public void requestIntermediateResultPartition(int queueIndex) throws IOException {
 		if (partitionRequestClient == null) {
-			LOG.debug("Requesting REMOTE queue {} from partition {} produced by {}.", queueIndex, partitionId, producerExecutionId);
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Requesting queue {} from REMOTE partition {}.", partitionId, queueIndex);
+			}
 
-			partitionRequestClient = connectionManager.createPartitionRequestClient(producerAddress);
+			partitionRequestClient = reader.getConnectionManager().createPartitionRequestClient(producerAddress);
 
 			partitionRequestClient.requestIntermediateResultPartition(producerExecutionId, partitionId, queueIndex, this);
 		}
@@ -152,15 +149,13 @@ public class RemoteInputChannel extends InputChannel {
 
 			if (partitionRequestClient != null) {
 				partitionRequestClient.close(this);
-			} else {
-				connectionManager.closeOpenChannelConnections(producerAddress);
 			}
 		}
 	}
 
 	@Override
 	public String toString() {
-		return "REMOTE " + id + " " + producerAddress + " " + super.toString();
+		return "REMOTE " + id + " " + super.toString();
 	}
 
 	// ------------------------------------------------------------------------
@@ -176,7 +171,7 @@ public class RemoteInputChannel extends InputChannel {
 			return null;
 		}
 
-		return inputGate.getBufferProvider();
+		return reader.getBufferProvider();
 	}
 
 	public void onBuffer(Buffer buffer, int sequenceNumber) {
@@ -189,7 +184,7 @@ public class RemoteInputChannel extends InputChannel {
 						receivedBuffers.add(buffer);
 						expectedSequenceNumber++;
 
-						notifyAvailableBuffer();
+						notifyReaderAboutAvailableBuffer();
 
 						success = true;
 
@@ -210,7 +205,7 @@ public class RemoteInputChannel extends InputChannel {
 
 	public void onError(Throwable error) {
 		if (ioError.compareAndSet(null, error instanceof IOException ? (IOException) error : new IOException(error))) {
-			notifyAvailableBuffer();
+			notifyReaderAboutAvailableBuffer();
 		}
 	}
 
@@ -220,8 +215,8 @@ public class RemoteInputChannel extends InputChannel {
 		IOException error = ioError.get();
 
 		if (error != null) {
-			throw new IOException(String.format("%s at remote input channel: %s].",
-					error.getClass().getName(), error.getMessage()));
+			throw new IOException(String.format("%s at remote input channel of task '%s': %s].",
+					error.getClass().getName(), reader.getTaskNameWithSubtasks(), error.getMessage()));
 		}
 	}
 

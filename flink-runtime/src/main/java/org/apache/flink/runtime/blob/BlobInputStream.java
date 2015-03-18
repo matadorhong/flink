@@ -24,8 +24,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 
-import static org.apache.flink.runtime.blob.BlobUtils.readLength;
-
 /**
  * The BLOB input stream is a special implementation of an {@link InputStream} to read the results of a GET operation
  * from the BLOB server.
@@ -65,13 +63,16 @@ final class BlobInputStream extends InputStream {
 	 *        the underlying input stream to read from
 	 * @param blobKey
 	 *        the expected BLOB key for content-addressable BLOBs, <code>null</code> for non-content-addressable BLOBs.
+	 * @param buf
+	 *        auxiliary buffer to read the meta data from the BLOB server
 	 * @throws IOException
 	 *         throws if an I/O error occurs while reading the BLOB data from the BLOB server
 	 */
-	BlobInputStream(final InputStream wrappedInputStream, final BlobKey blobKey) throws IOException {
+	BlobInputStream(final InputStream wrappedInputStream, final BlobKey blobKey, final byte[] buf) throws IOException {
+
 		this.wrappedInputStream = wrappedInputStream;
 		this.blobKey = blobKey;
-		this.bytesToReceive = readLength(wrappedInputStream);
+		this.bytesToReceive = BlobServer.readLength(buf, wrappedInputStream);
 		if (this.bytesToReceive < 0) {
 			throw new FileNotFoundException();
 		}
@@ -92,6 +93,7 @@ final class BlobInputStream extends InputStream {
 
 	@Override
 	public int read() throws IOException {
+
 		if (this.bytesReceived == this.bytesToReceive) {
 			return -1;
 		}
@@ -123,6 +125,7 @@ final class BlobInputStream extends InputStream {
 
 	@Override
 	public int read(byte[] b, int off, int len) throws IOException {
+
 		final int bytesMissing = this.bytesToReceive - this.bytesReceived;
 
 		if (bytesMissing == 0) {
@@ -152,12 +155,14 @@ final class BlobInputStream extends InputStream {
 
 	@Override
 	public long skip(long n) throws IOException {
+
 		return 0L;
 	}
 
 	@Override
 	public int available() throws IOException {
-		return this.bytesToReceive - this.bytesReceived;
+
+		return 0;
 	}
 
 	@Override
@@ -166,16 +171,19 @@ final class BlobInputStream extends InputStream {
 	}
 
 	public void mark(final int readlimit) {
+
 		// Do not do anything here
 	}
 
 	@Override
 	public void reset() throws IOException {
+
 		throw new IOException("mark/reset not supported");
 	}
 
 	@Override
 	public boolean markSupported() {
+
 		return false;
 	}
 }

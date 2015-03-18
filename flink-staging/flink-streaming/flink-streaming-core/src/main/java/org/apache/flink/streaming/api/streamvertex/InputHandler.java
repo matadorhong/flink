@@ -18,20 +18,21 @@
 package org.apache.flink.streaming.api.streamvertex;
 
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.core.io.IOReadableWritable;
 import org.apache.flink.runtime.io.network.api.reader.MutableReader;
-import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
-import org.apache.flink.runtime.io.network.partition.consumer.UnionInputGate;
+import org.apache.flink.runtime.io.network.api.reader.MutableRecordReader;
+import org.apache.flink.runtime.io.network.api.reader.UnionBufferReader;
+import org.apache.flink.runtime.operators.util.ReaderIterator;
 import org.apache.flink.runtime.plugable.DeserializationDelegate;
 import org.apache.flink.streaming.api.StreamConfig;
 import org.apache.flink.streaming.api.streamrecord.StreamRecord;
 import org.apache.flink.streaming.api.streamrecord.StreamRecordSerializer;
-import org.apache.flink.streaming.io.IndexedMutableReader;
-import org.apache.flink.streaming.io.IndexedReaderIterator;
+import org.apache.flink.util.MutableObjectIterator;
 
 public class InputHandler<IN> {
 	private StreamRecordSerializer<IN> inputSerializer = null;
-	private IndexedReaderIterator<StreamRecord<IN>> inputIter;
-	private IndexedMutableReader<DeserializationDelegate<StreamRecord<IN>>> inputs;
+	private MutableObjectIterator<StreamRecord<IN>> inputIter;
+	private MutableReader<IOReadableWritable> inputs;
 
 	private StreamVertex<IN, ?> streamVertex;
 	private StreamConfig configuration;
@@ -52,29 +53,36 @@ public class InputHandler<IN> {
 		inputSerializer = configuration.getTypeSerializerIn1(streamVertex.userClassLoader);
 
 		int numberOfInputs = configuration.getNumberOfInputs();
-
 		if (numberOfInputs > 0) {
-			InputGate inputGate = numberOfInputs < 2 ? streamVertex.getEnvironment()
-					.getInputGate(0) : new UnionInputGate(streamVertex.getEnvironment()
-					.getAllInputGates());
 
-			inputs = new IndexedMutableReader<DeserializationDelegate<StreamRecord<IN>>>(inputGate);
-			inputs.registerTaskEventListener(streamVertex.getSuperstepListener(),
-					StreamingSuperstep.class);
+			if (numberOfInputs < 2) {
 
-			inputIter = new IndexedReaderIterator<StreamRecord<IN>>(inputs, inputSerializer);
+				inputs = new MutableRecordReader<IOReadableWritable>(streamVertex.getEnvironment().getReader(0));
+
+			} else {
+				UnionBufferReader reader = new UnionBufferReader(streamVertex.getEnvironment().getAllReaders());
+				inputs = new MutableRecordReader<IOReadableWritable>(reader);
+			}
+
+			inputIter = createInputIterator();
 		}
-
 	}
 
-	protected static <T> IndexedReaderIterator<StreamRecord<T>> staticCreateInputIterator(
-			MutableReader<?> inputReader, TypeSerializer<StreamRecord<T>> serializer) {
+	private MutableObjectIterator<StreamRecord<IN>> createInputIterator() {
+		@SuppressWarnings({ "unchecked", "rawtypes" })
+		final MutableObjectIterator<StreamRecord<IN>> iter = new ReaderIterator(inputs,
+				inputSerializer);
+		return iter;
+	}
+
+	protected static <T> MutableObjectIterator<StreamRecord<T>> staticCreateInputIterator(
+			MutableReader<?> inputReader, TypeSerializer<?> serializer) {
 
 		// generic data type serialization
 		@SuppressWarnings("unchecked")
-		IndexedMutableReader<DeserializationDelegate<StreamRecord<T>>> reader = (IndexedMutableReader<DeserializationDelegate<StreamRecord<T>>>) inputReader;
-		final IndexedReaderIterator<StreamRecord<T>> iter = new IndexedReaderIterator<StreamRecord<T>>(
-				reader, serializer);
+		MutableReader<DeserializationDelegate<?>> reader = (MutableReader<DeserializationDelegate<?>>) inputReader;
+		@SuppressWarnings({ "unchecked", "rawtypes" })
+		final MutableObjectIterator<StreamRecord<T>> iter = new ReaderIterator(reader, serializer);
 		return iter;
 	}
 
@@ -82,13 +90,7 @@ public class InputHandler<IN> {
 		return inputSerializer;
 	}
 
-	public IndexedReaderIterator<StreamRecord<IN>> getInputIter() {
+	public MutableObjectIterator<StreamRecord<IN>> getInputIter() {
 		return inputIter;
-	}
-
-	public void clearReaders() {
-		if (inputs != null) {
-			inputs.clearBuffers();
-		}
 	}
 }

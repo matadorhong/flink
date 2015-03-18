@@ -16,9 +16,20 @@
  * limitations under the License.
  */
 
+
 package org.apache.flink.client;
 
-import org.apache.flink.client.cli.CommandLineOptions;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
+
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+
+import org.apache.commons.cli.CommandLine;
+import org.apache.flink.client.CliFrontend;
+import org.apache.flink.client.CliFrontendTestUtils.TestingCliFrontend;
 import org.apache.flink.client.program.Client;
 import org.apache.flink.client.program.PackagedProgram;
 import org.apache.flink.client.program.ProgramInvocationException;
@@ -26,11 +37,6 @@ import org.apache.flink.compiler.CompilerException;
 import org.apache.flink.configuration.Configuration;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-
-import static org.junit.Assert.*;
 
 public class CliFrontendInfoTest {
 	
@@ -46,20 +52,21 @@ public class CliFrontendInfoTest {
 			// test unrecognized option
 			{
 				String[] parameters = {"-v", "-l"};
-				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
+				CliFrontend testFrontend = new CliFrontend();
 				int retCode = testFrontend.cancel(parameters);
-				assertTrue(retCode != 0);
+				assertTrue(retCode == 2);
 			}
 			
 			// test missing options
 			{
 				String[] parameters = {};
-				CliFrontend testFrontend = new CliFrontend(CliFrontendTestUtils.getConfigDir());
+				CliFrontend testFrontend = new CliFrontend();
 				int retCode = testFrontend.cancel(parameters);
 				assertTrue(retCode != 0);
 			}
 		}
 		catch (Exception e) {
+			System.err.println(e.getMessage());
 			e.printStackTrace();
 			fail("Program caused an exception: " + e.getMessage());
 		}
@@ -68,12 +75,13 @@ public class CliFrontendInfoTest {
 	@Test
 	public void testShowExecutionPlan() {
 		try {
-			String[] parameters = new String[] { CliFrontendTestUtils.getTestJarPath() };
+			String[] parameters = {"-e", CliFrontendTestUtils.getTestJarPath()};
 			InfoTestCliFrontend testFrontend = new InfoTestCliFrontend(-1);
 			int retCode = testFrontend.info(parameters);
 			assertTrue(retCode == 0);
 		}
 		catch (Exception e) {
+			System.err.println(e.getMessage());
 			e.printStackTrace();
 			fail("Program caused an exception: " + e.getMessage());
 		}
@@ -82,12 +90,13 @@ public class CliFrontendInfoTest {
 	@Test
 	public void testShowExecutionPlanWithParallelism() {
 		try {
-			String[] parameters = {"-p", "17", CliFrontendTestUtils.getTestJarPath()};
+			String[] parameters = {"-e", "-p", "17", CliFrontendTestUtils.getTestJarPath()};
 			InfoTestCliFrontend testFrontend = new InfoTestCliFrontend(17);
 			int retCode = testFrontend.info(parameters);
 			assertTrue(retCode == 0);
 		}
 		catch (Exception e) {
+			System.err.println(e.getMessage());
 			e.printStackTrace();
 			fail("Program caused an exception: " + e.getMessage());
 		}
@@ -95,20 +104,22 @@ public class CliFrontendInfoTest {
 	
 	// --------------------------------------------------------------------------------------------
 	
-	private static final class InfoTestCliFrontend extends CliFrontend {
+	private static final class InfoTestCliFrontend extends TestingCliFrontend {
 		
 		private final int expectedDop;
 		
-		public InfoTestCliFrontend(int expectedDop) throws Exception {
-			super(CliFrontendTestUtils.getConfigDir());
+		public InfoTestCliFrontend(int expectedDop) {
 			this.expectedDop = expectedDop;
 		}
 
 		@Override
-		protected Client getClient(CommandLineOptions options, ClassLoader loader, String programName)
-				throws Exception
-		{
-			return new TestClient(expectedDop);
+		protected Client getClient(CommandLine line, ClassLoader loader, String programName) throws IOException {
+			try {
+				return new TestClient(expectedDop);
+			}
+			catch (Exception e) {
+				throw new IOException(e);
+			}
 		}
 	}
 	
@@ -117,16 +128,13 @@ public class CliFrontendInfoTest {
 		private final int expectedDop;
 		
 		private TestClient(int expectedDop) throws Exception {
-			super(new InetSocketAddress(InetAddress.getLocalHost(), 6176),
-					new Configuration(), CliFrontendInfoTest.class.getClassLoader());
+			super(new InetSocketAddress(InetAddress.getLocalHost(), 6176), new Configuration(), CliFrontendInfoTest.class.getClassLoader());
 			
 			this.expectedDop = expectedDop;
 		}
 		
 		@Override
-		public String getOptimizedPlanAsJson(PackagedProgram prog, int parallelism)
-				throws CompilerException, ProgramInvocationException
-		{
+		public String getOptimizedPlanAsJson(PackagedProgram prog, int parallelism) throws CompilerException, ProgramInvocationException  {
 			assertEquals(this.expectedDop, parallelism);
 			return "";
 		}

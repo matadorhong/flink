@@ -156,6 +156,7 @@ public class ReduceOperatorBase<T, FT extends ReduceFunction<T>> extends SingleI
 			return Collections.emptyList();
 		}
 
+		boolean objectReuseDisabled = !executionConfig.isObjectReuseEnabled();
 		ReduceFunction<T> function = this.userFunction.getUserCodeObject();
 
 		UnaryOperatorInformation<T, T> operatorInfo = getOperatorInfo();
@@ -184,13 +185,21 @@ public class ReduceOperatorBase<T, FT extends ReduceFunction<T>> extends SingleI
 				T existing = aggregateMap.get(wrapper);
 				T result;
 
-				if (existing != null) {
-					result = function.reduce(existing, serializer.copy(next));
-				} else {
-					result = next;
-				}
+				if (objectReuseDisabled) {
+					if (existing != null) {
+						result = function.reduce(existing, serializer.copy(next));
+					} else {
+						result = next;
+					}
 
-				result = serializer.copy(result);
+					result = serializer.copy(result);
+				} else {
+					if (existing != null) {
+						result = function.reduce(existing, next);
+					} else {
+						result = next;
+					}
+				}
 
 				aggregateMap.put(wrapper, result);
 
@@ -202,11 +211,18 @@ public class ReduceOperatorBase<T, FT extends ReduceFunction<T>> extends SingleI
 		else {
 			T aggregate = inputData.get(0);
 			
-			aggregate = serializer.copy(aggregate);
-
-			for (int i = 1; i < inputData.size(); i++) {
-				T next = function.reduce(aggregate, serializer.copy(inputData.get(i)));
-				aggregate = serializer.copy(next);
+			if (objectReuseDisabled) {
+				aggregate = serializer.copy(aggregate);
+				
+				for (int i = 1; i < inputData.size(); i++) {
+					T next = function.reduce(aggregate, serializer.copy(inputData.get(i)));
+					aggregate = serializer.copy(next);
+				}
+			}
+			else {
+				for (int i = 1; i < inputData.size(); i++) {
+					aggregate = function.reduce(aggregate, inputData.get(i));
+				}
 			}
 
 			FunctionUtils.setFunctionRuntimeContext(function, ctx);

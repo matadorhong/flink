@@ -41,6 +41,4 @@ public abstract class AbstractFlinkYarnCluster {
 	public abstract String getDiagnostics();
 
 	public abstract List<String> getNewMessages();
-
-	public abstract String getApplicationId();
 }

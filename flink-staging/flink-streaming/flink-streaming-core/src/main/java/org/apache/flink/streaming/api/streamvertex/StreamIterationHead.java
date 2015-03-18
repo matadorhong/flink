@@ -17,7 +17,8 @@
 
 package org.apache.flink.streaming.api.streamvertex;
 
-import java.util.Collection;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -25,7 +26,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.flink.streaming.api.collector.StreamOutput;
 import org.apache.flink.streaming.api.streamrecord.StreamRecord;
 import org.apache.flink.streaming.io.BlockingQueueBroker;
-import org.apache.flink.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +33,7 @@ public class StreamIterationHead<OUT> extends StreamVertex<OUT, OUT> {
 
 	private static final Logger LOG = LoggerFactory.getLogger(StreamIterationHead.class);
 
-	private Collection<StreamOutput<?>> outputs;
+	private OutputHandler<OUT> outputHandler;
 
 	private static int numSources;
 	private Integer iterationId;
@@ -52,7 +52,6 @@ public class StreamIterationHead<OUT> extends StreamVertex<OUT, OUT> {
 	@Override
 	public void setInputsOutputs() {
 		outputHandler = new OutputHandler<OUT>(this);
-		outputs = outputHandler.getOutputs();
 
 		iterationId = configuration.getIterationId();
 		iterationWaitTime = configuration.getIterationWaitTime();
@@ -61,46 +60,39 @@ public class StreamIterationHead<OUT> extends StreamVertex<OUT, OUT> {
 		try {
 			BlockingQueueBroker.instance().handIn(iterationId.toString(), dataChannel);
 		} catch (Exception e) {
-			throw new RuntimeException(e);
-		}
 
+		}
 	}
 
 	@SuppressWarnings("unchecked")
 	@Override
 	public void invoke() throws Exception {
 		if (LOG.isDebugEnabled()) {
-			LOG.debug("Iteration source {} invoked with instance id {}", getName(), getInstanceID());
+			LOG.debug("SOURCE {} invoked with instance id {}", getName(), getInstanceID());
 		}
 
-		try {
-			StreamRecord<OUT> nextRecord;
+		StreamRecord<OUT> nextRecord;
 
-			while (true) {
-				if (shouldWait) {
-					nextRecord = dataChannel.poll(iterationWaitTime, TimeUnit.MILLISECONDS);
-				} else {
-					nextRecord = dataChannel.take();
-				}
-				if (nextRecord == null) {
-					break;
-				}
-				for (StreamOutput<?> output : outputs) {
-					((StreamOutput<OUT>) output).collect(nextRecord.getObject());
-				}
-			}
-
-		} catch (Exception e) {
-			if (LOG.isErrorEnabled()) {
-				LOG.error("Iteration source failed due to: {}", StringUtils.stringifyException(e));
-			}
-			throw e;
-		} finally {
-			// Cleanup
-			outputHandler.flushOutputs();
-			clearBuffers();
+		List<StreamOutput<OUT>> outputs = new LinkedList<StreamOutput<OUT>>();
+		for (StreamOutput<?> output : outputHandler.getOutputs()) {
+			outputs.add((StreamOutput<OUT>) output);
 		}
 
+		while (true) {
+			if (shouldWait) {
+				nextRecord = dataChannel.poll(iterationWaitTime, TimeUnit.MILLISECONDS);
+			} else {
+				nextRecord = dataChannel.take();
+			}
+			if (nextRecord == null) {
+				break;
+			}
+			for (StreamOutput<OUT> output : outputs) {
+				output.collect(nextRecord.getObject());
+			}
+		}
+
+		outputHandler.flushOutputs();
 	}
 
 	@Override

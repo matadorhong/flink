@@ -51,8 +51,8 @@ public class BlobLibraryCacheManagerTest {
 		final byte[] buf = new byte[128];
 
 		try {
-			server = new BlobServer(new Configuration());
-			InetSocketAddress blobSocketAddress = new InetSocketAddress(server.getPort());
+			server = new BlobServer();
+			InetSocketAddress blobSocketAddress = new InetSocketAddress(server.getServerPort());
 			BlobClient bc = new BlobClient(blobSocketAddress);
 
 			keys.add(bc.put(buf));
@@ -109,7 +109,11 @@ public class BlobLibraryCacheManagerTest {
 		}
 		finally{
 			if (server != null){
-				server.shutdown();
+				try {
+					server.shutdown();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
 			}
 
 			if (libraryCacheManager != null){

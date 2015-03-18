@@ -18,21 +18,18 @@
 
 package org.apache.flink.runtime.blob;
 
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.flink.configuration.ConfigConstants;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.jobgraph.JobID;
 
 import org.slf4j.Logger;
@@ -42,32 +39,63 @@ import org.slf4j.LoggerFactory;
  * This class implements the BLOB server. The BLOB server is responsible for listening for incoming requests and
  * spawning threads to handle these requests. Furthermore, it takes care of creating the directory structure to store
  * the BLOBs or temporarily cache them.
+ * <p>
+ * This class is thread-safe.
  */
-public class BlobServer extends Thread implements BlobService {
+public final class BlobServer extends Thread implements BlobService{
 
-	/** The log object used for debugging. */
+	/**
+	 * The log object used for debugging.
+	 */
 	private static final Logger LOG = LoggerFactory.getLogger(BlobServer.class);
 
-	/** Counter to generate unique names for temporary files. */
+	/**
+	 * The buffer size in bytes for network transfers.
+	 */
+	static final int BUFFER_SIZE = 4096;
+
+	/**
+	 * The maximum key length allowed for storing BLOBs.
+	 */
+	static final int MAX_KEY_LENGTH = 64;
+
+	/**
+	 * Internal code to identify a PUT operation.
+	 */
+	static final byte PUT_OPERATION = 0;
+
+	/**
+	 * Internal code to identify a GET operation.
+	 */
+	static final byte GET_OPERATION = 1;
+
+	/**
+	 * Internal code to identify a DELETE operation.
+	 */
+	static final byte DELETE_OPERATION = 2;
+
+	/**
+	 * Counter to generate unique names for temporary files.
+	 */
 	private final AtomicInteger tempFileCounter = new AtomicInteger(0);
 
-	/** The server socket listening for incoming connections. */
+	/**
+	 * The server socket listening for incoming connections.
+	 */
 	private final ServerSocket serverSocket;
 
-	/** Indicates whether a shutdown of server component has been requested. */
-	private final AtomicBoolean shutdownRequested = new AtomicBoolean();
+	/**
+	 * Indicates whether a shutdown of server component has been requested.
+	 */
+	private AtomicBoolean shutdownRequested = new AtomicBoolean();
 
 	/** Shutdown hook thread to ensure deletion of the storage directory. */
 	private final Thread shutdownHook;
 
-	/** Is the root directory for file storage */
+	/**
+	 * Is the root directory for file storage
+	 */
 	private final File storageDir;
-
-	/** Set of currently running threads */
-	private final Set<BlobServerConnection> activeConnections = new HashSet<BlobServerConnection>();
-
-	/** The maximum number of concurrent connections */
-	private final int maxConnections;
 
 	/**
 	 * Instantiates a new BLOB server and binds it to a free network port.
@@ -75,58 +103,38 @@ public class BlobServer extends Thread implements BlobService {
 	 * @throws IOException
 	 *         thrown if the BLOB server cannot bind to a free network port
 	 */
-	public BlobServer(Configuration config) throws IOException {
-
-		// configure and create the storage directory
-		String storageDirectory = config.getString(ConfigConstants.BLOB_STORAGE_DIRECTORY_KEY, null);
-		this.storageDir = BlobUtils.initStorageDirectory(storageDirectory);
-		LOG.info("Created BLOB server storage directory {}", storageDir);
-
-		// configure the maximum number of concurrent connections
-		final int maxConnections = config.getInteger(
-				ConfigConstants.BLOB_FETCH_CONCURRENT_KEY, ConfigConstants.DEFAULT_BLOB_FETCH_CONCURRENT);
-		if (maxConnections >= 1) {
-			this.maxConnections = maxConnections;
-		}
-		else {
-			LOG.warn("Invalid value for maximum connections in BLOB server: {}. Using default value of {}",
-					maxConnections, ConfigConstants.DEFAULT_BLOB_FETCH_CONCURRENT);
-			this.maxConnections = ConfigConstants.DEFAULT_BLOB_FETCH_CONCURRENT;
-		}
-
-		// configure the backlog of connections
-		int backlog = config.getInteger(ConfigConstants.BLOB_FETCH_BACKLOG_KEY, ConfigConstants.DEFAULT_BLOB_FETCH_BACKLOG);
-		if (backlog < 1) {
-			LOG.warn("Invalid value for BLOB connection backlog: {}. Using default value of {}",
-					backlog, ConfigConstants.DEFAULT_BLOB_FETCH_BACKLOG);
-			backlog = ConfigConstants.DEFAULT_BLOB_FETCH_BACKLOG;
-		}
-
-		// Add shutdown hook to delete storage directory
-		this.shutdownHook = BlobUtils.addShutdownHook(this, LOG);
-
-		// start the server
+	public BlobServer() throws IOException {
 		try {
-			this.serverSocket = new ServerSocket(0, backlog);
+			this.serverSocket = new ServerSocket(0);
+
+			start();
+
+			if (LOG.isInfoEnabled()) {
+				LOG.info(String.format("Started BLOB server on port %d",
+						this.serverSocket.getLocalPort()));
+			}
+
+			this.storageDir = BlobUtils.initStorageDirectory();
+
+			LOG.info("Created BLOB server storage directory " + storageDir);
+
+			shutdownHook = BlobUtils.addShutdownHook(this, LOG);
 		}
 		catch (IOException e) {
-			throw new IOException("Could not create BlobServer with automatic port choice.", e);
-		}
-
-		// start the server thread
-		setName("BLOB Server listener at " + getPort());
-		setDaemon(true);
-		start();
-
-		if (LOG.isInfoEnabled()) {
-			LOG.info("Started BLOB server at {}:{} - max concurrent requests: {} - max backlog: {}",
-					serverSocket.getInetAddress().getHostAddress(), getPort(), maxConnections, backlog);
+			throw new IOException("Could not create BlobServer with random port.", e);
 		}
 	}
 
-	// --------------------------------------------------------------------------------------------
-	//  Path Accessors
-	// --------------------------------------------------------------------------------------------
+	/**
+	 * Returns the network port the BLOB server is bound to. The return value of this method is undefined after the BLOB
+	 * server has been shut down.
+	 * 
+	 * @return the network port the BLOB server is bound to
+	 */
+	public int getServerPort() {
+
+		return this.serverSocket.getLocalPort();
+	}
 
 	/**
 	 * Returns a file handle to the file associated with the given blob key on the blob
@@ -135,7 +143,7 @@ public class BlobServer extends Thread implements BlobService {
 	 * @param key identifying the file
 	 * @return file handle to the file
 	 */
-	public File getStorageLocation(BlobKey key) {
+	public File getStorageLocation(BlobKey key){
 		return BlobUtils.getStorageLocation(storageDir, key);
 	}
 
@@ -146,7 +154,7 @@ public class BlobServer extends Thread implements BlobService {
 	 * @param key to identify the file within the job context
 	 * @return file handle to the file
 	 */
-	public File getStorageLocation(JobID jobID, String key) {
+	public File getStorageLocation(JobID jobID, String key){
 		return BlobUtils.getStorageLocation(storageDir, jobID, key);
 	}
 
@@ -156,7 +164,7 @@ public class BlobServer extends Thread implements BlobService {
 	 * @param jobID all files associated to this jobID will be deleted
 	 * @throws IOException
 	 */
-	public void deleteJobDirectory(JobID jobID) throws IOException {
+	public void deleteJobDirectory(JobID jobID) throws IOException{
 		BlobUtils.deleteJobDirectory(storageDir, jobID);
 	}
 
@@ -165,41 +173,23 @@ public class BlobServer extends Thread implements BlobService {
 	 * 
 	 * @return a temporary file inside the BLOB server's incoming directory
 	 */
-	File createTemporaryFilename() {
-		return new File(BlobUtils.getIncomingDirectory(storageDir),
-				String.format("temp-%08d", tempFileCounter.getAndIncrement()));
+	File getTemporaryFilename() {
+		return new File(BlobUtils.getIncomingDirectory(storageDir), String.format("temp-%08d",
+				tempFileCounter.getAndIncrement()));
 	}
 
 	@Override
 	public void run() {
-		try {
-			while (!this.shutdownRequested.get()) {
-				BlobServerConnection conn = new BlobServerConnection(serverSocket.accept(), this);
-				try {
-					synchronized (activeConnections) {
-						while (activeConnections.size() >= maxConnections) {
-							activeConnections.wait(2000);
-						}
-						activeConnections.add(conn);
-					}
 
-					conn.start();
-					conn = null;
-				}
-				finally {
-					if (conn != null) {
-						conn.close();
-						synchronized (activeConnections) {
-							activeConnections.remove(conn);
-						}
-					}
-				}
+		try {
+
+			while (!this.shutdownRequested.get()) {
+				new BlobConnection(this.serverSocket.accept(), this).start();
 			}
-		}
-		catch (Throwable t) {
-			if (!this.shutdownRequested.get()) {
-				LOG.error("BLOB server stopped working. Shutting down", t);
-				shutdown();
+
+		} catch (IOException ioe) {
+			if (!this.shutdownRequested.get() && LOG.isErrorEnabled()) {
+				LOG.error("Blob server stopped working.", ioe);
 			}
 		}
 	}
@@ -208,7 +198,7 @@ public class BlobServer extends Thread implements BlobService {
 	 * Shuts down the BLOB server.
 	 */
 	@Override
-	public void shutdown() {
+	public void shutdown() throws IOException {
 		if (shutdownRequested.compareAndSet(false, true)) {
 			try {
 				this.serverSocket.close();
@@ -216,10 +206,6 @@ public class BlobServer extends Thread implements BlobService {
 			catch (IOException ioe) {
 				LOG.debug("Error while closing the server socket.", ioe);
 			}
-
-			// wake the thread up, in case it is waiting on some operation
-			interrupt();
-
 			try {
 				join();
 			}
@@ -227,37 +213,13 @@ public class BlobServer extends Thread implements BlobService {
 				LOG.debug("Error while waiting for this thread to die.", ie);
 			}
 
-			synchronized (activeConnections) {
-				if (!activeConnections.isEmpty()) {
-					for (BlobServerConnection conn : activeConnections) {
-						LOG.debug("Shutting down connection " + conn.getName());
-						conn.close();
-					}
-					activeConnections.clear();
-				}
-			}
-
 			// Clean up the storage directory
-			try {
-				FileUtils.deleteDirectory(storageDir);
-			}
-			catch (IOException e) {
-				LOG.error("BLOB server failed to properly clean up its storage directory.");
-			}
+			FileUtils.deleteDirectory(storageDir);
 
-			// Remove shutdown hook to prevent resource leaks, unless this is invoked by the
-			// shutdown hook itself
-			if (shutdownHook != null && shutdownHook != Thread.currentThread()) {
-				try {
-					Runtime.getRuntime().removeShutdownHook(shutdownHook);
-				}
-				catch (IllegalStateException e) {
-					// race, JVM is in shutdown already, we can safely ignore this
-				}
-				catch (Throwable t) {
-					LOG.warn("Exception while unregistering BLOB server's cleanup shutdown hook.");
-				}
-			}
+			// Remove shutdown hook to prevent resource leaks
+			Runtime.getRuntime().removeShutdownHook(shutdownHook);
+
+			// TODO: Find/implement strategy to handle content-addressable BLOBs
 		}
 	}
 
@@ -272,15 +234,16 @@ public class BlobServer extends Thread implements BlobService {
 	 */
 	@Override
 	public URL getURL(BlobKey requiredBlob) throws IOException {
-		if (requiredBlob == null) {
+		if(requiredBlob == null){
 			throw new IllegalArgumentException("Required BLOB cannot be null.");
 		}
 
 		final File localFile = BlobUtils.getStorageLocation(storageDir, requiredBlob);
 
-		if (!localFile.exists()) {
-			throw new FileNotFoundException("File " + localFile.getCanonicalPath() + " does not exist.");
-		} else {
+		if(!localFile.exists()){
+			throw new FileNotFoundException("File " + localFile.getCanonicalPath() + " does " +
+					"not exist.");
+		}else{
 			return localFile.toURI().toURL();
 		}
 	}
@@ -289,17 +252,15 @@ public class BlobServer extends Thread implements BlobService {
 	 * This method deletes the file associated to the blob key if it exists in the local storage
 	 * of the blob server.
 	 *
-	 * @param key associated with the file to be deleted
+	 * @param blobKey associated with the file to be deleted
 	 * @throws IOException
 	 */
 	@Override
-	public void delete(BlobKey key) throws IOException {
-		final File localFile = BlobUtils.getStorageLocation(storageDir, key);
+	public void delete(BlobKey blobKey) throws IOException {
+		final File localFile = BlobUtils.getStorageLocation(storageDir, blobKey);
 
-		if (localFile.exists()) {
-			if (!localFile.delete()) {
-				LOG.warn("Failed to delete locally BLOB " + key + " at " + localFile.getAbsolutePath());
-			}
+		if(localFile.exists()){
+			localFile.delete();
 		}
 	}
 
@@ -310,35 +271,95 @@ public class BlobServer extends Thread implements BlobService {
 	 */
 	@Override
 	public int getPort() {
-		return this.serverSocket.getLocalPort();
+		return getServerPort();
 	}
 
 	/**
-	 * Tests whether the BLOB server has been requested to shut down.
+	 * Auxiliary method to write the length of an upcoming data chunk to an
+	 * output stream.
 	 *
-	 * @return True, if the server has been requested to shut down, false otherwise.
+	 * @param length
+	 *        the length of the upcoming data chunk in bytes
+	 * @param buf
+	 *        the byte buffer to use for the integer serialization
+	 * @param outputStream
+	 *        the output stream to write the length to
+	 * @throws IOException
+	 *         thrown if an I/O error occurs while writing to the output
+	 *         stream
 	 */
-	public boolean isShutdown() {
-		return this.shutdownRequested.get();
+	static void writeLength(final int length, final byte[] buf,
+							final OutputStream outputStream) throws IOException {
+
+		buf[0] = (byte) (length & 0xff);
+		buf[1] = (byte) ((length >> 8) & 0xff);
+		buf[2] = (byte) ((length >> 16) & 0xff);
+		buf[3] = (byte) ((length >> 24) & 0xff);
+
+		outputStream.write(buf, 0, 4);
 	}
 
 	/**
-	 * Access to the server socket, for testing
+	 * Auxiliary method to read the length of an upcoming data chunk from an
+	 * input stream.
+	 *
+	 * @param buf
+	 *        the byte buffer to use for the integer deserialization
+	 * @param inputStream
+	 *        the input stream to read the length from
+	 * @return the length of the upcoming data chunk in bytes
+	 * @throws IOException
+	 *         thrown if an I/O error occurs while reading from the input
+	 *         stream
 	 */
-	ServerSocket getServerSocket() {
-		return this.serverSocket;
-	}
+	static int readLength(final byte[] buf, final InputStream inputStream)
+			throws IOException {
 
-	void unregisterConnection(BlobServerConnection conn) {
-		synchronized (activeConnections) {
-			activeConnections.remove(conn);
-			activeConnections.notifyAll();
+		int bytesRead = 0;
+		while (bytesRead < 4) {
+			final int read = inputStream.read(buf, bytesRead, 4 - bytesRead);
+			if (read < 0) {
+				throw new EOFException();
+			}
+			bytesRead += read;
 		}
+
+		bytesRead = buf[0] & 0xff;
+		bytesRead |= (buf[1] & 0xff) << 8;
+		bytesRead |= (buf[2] & 0xff) << 16;
+		bytesRead |= (buf[3] & 0xff) << 24;
+
+		return bytesRead;
 	}
 
-	List<BlobServerConnection> getCurrentyActiveConnections() {
-		synchronized (activeConnections) {
-			return new ArrayList<BlobServerConnection>(activeConnections);
+	/**
+	 * Auxiliary method to read a particular number of bytes from an input stream. This method blocks until the
+	 * requested number of bytes have been read from the stream. If the stream cannot offer enough data, an
+	 * {@link EOFException} is thrown.
+	 *
+	 * @param inputStream
+	 *        the input stream to read the data from
+	 * @param buf
+	 *        the buffer to store the read data
+	 * @param off
+	 *        the offset inside the buffer
+	 * @param len
+	 *        the number of bytes to read from the stream
+	 * @throws IOException
+	 *         thrown if I/O error occurs while reading from the stream or the stream cannot offer enough data
+	 */
+	static void readFully(final InputStream inputStream,
+						final byte[] buf, final int off, final int len) throws IOException {
+
+		int bytesRead = 0;
+		while (bytesRead < len) {
+
+			final int read = inputStream.read(buf, off + bytesRead, len
+					- bytesRead);
+			if (read < 0) {
+				throw new EOFException();
+			}
+			bytesRead += read;
 		}
 	}
 }

@@ -19,12 +19,11 @@
 package org.apache.flink.runtime.jobmanager
 
 import akka.actor.ActorSystem
-import akka.actor.Status.Success
 import akka.testkit.{ImplicitSender, TestKit}
 import org.apache.flink.runtime.jobgraph.{AbstractJobVertex, DistributionPattern, JobGraph}
 import org.apache.flink.runtime.jobmanager.Tasks.{Sender, AgnosticBinaryReceiver, Receiver}
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup
-import org.apache.flink.runtime.messages.JobManagerMessages.{JobResultSuccess, SubmitJob}
+import org.apache.flink.runtime.messages.JobManagerMessages.{JobResultSuccess, SubmissionSuccess, SubmitJob}
 import org.apache.flink.runtime.testingUtils.TestingUtils
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
@@ -66,7 +65,7 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
       try {
         within(TestingUtils.TESTING_DURATION) {
           jm ! SubmitJob(jobGraph)
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(SubmissionSuccess(jobGraph.getJobID))
           expectMsgType[JobResultSuccess]
 
         }
@@ -109,7 +108,7 @@ WordSpecLike with Matchers with BeforeAndAfterAll {
       try {
         within(TestingUtils.TESTING_DURATION) {
           jm ! SubmitJob(jobGraph)
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(SubmissionSuccess(jobGraph.getJobID))
           expectMsgType[JobResultSuccess]
         }
       } finally {

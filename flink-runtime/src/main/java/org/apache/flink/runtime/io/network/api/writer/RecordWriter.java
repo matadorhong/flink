@@ -50,7 +50,7 @@ public class RecordWriter<T extends IOReadableWritable> {
 	private final int numChannels;
 
 	/** {@link RecordSerializer} per outgoing channel */
-	private final RecordSerializer<T>[] serializers;
+	private RecordSerializer<T>[] serializers;
 
 	public RecordWriter(BufferWriter writer) {
 		this(writer, new RoundRobinChannelSelector<T>());

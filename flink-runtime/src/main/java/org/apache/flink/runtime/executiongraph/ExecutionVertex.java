@@ -18,17 +18,16 @@
 
 package org.apache.flink.runtime.executiongraph;
 
+import org.apache.flink.runtime.instance.InstanceConnectionInfo;
+import org.apache.flink.runtime.instance.SimpleSlot;
 import org.apache.flink.runtime.JobException;
 import org.apache.flink.runtime.blob.BlobKey;
-import org.apache.flink.runtime.deployment.PartialPartitionInfo;
 import org.apache.flink.runtime.deployment.PartitionConsumerDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.PartitionDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.PartitionInfo;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.instance.Instance;
-import org.apache.flink.runtime.instance.InstanceConnectionInfo;
-import org.apache.flink.runtime.instance.SimpleSlot;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.JobEdge;
@@ -38,8 +37,8 @@ import org.apache.flink.runtime.jobmanager.scheduler.CoLocationConstraint;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
 import org.apache.flink.runtime.jobmanager.scheduler.NoResourceAvailableException;
 import org.apache.flink.runtime.jobmanager.scheduler.Scheduler;
-import org.apache.flink.runtime.state.StateHandle;
 import org.slf4j.Logger;
+
 import scala.concurrent.duration.FiniteDuration;
 
 import java.io.Serializable;
@@ -73,7 +72,7 @@ public class ExecutionVertex implements Serializable {
 	private IntermediateResultPartition[] resultPartitions;
 	
 	private ExecutionEdge[][] inputEdges;
-
+	
 	private final int subTaskIndex;
 	
 	private final List<Execution> priorExecutions;
@@ -88,8 +87,6 @@ public class ExecutionVertex implements Serializable {
 	private volatile List<Instance> locationConstraintInstances;
 	
 	private volatile boolean scheduleLocalOnly;
-	
-	private StateHandle operatorState;
 	
 	// --------------------------------------------------------------------------------------------
 
@@ -112,7 +109,6 @@ public class ExecutionVertex implements Serializable {
 		}
 
 		this.inputEdges = new ExecutionEdge[jobVertex.getJobVertex().getInputs().size()][];
-
 		this.priorExecutions = new CopyOnWriteArrayList<Execution>();
 
 		this.currentExecution = new Execution(this, 0, createTimestamp, timeout);
@@ -196,19 +192,11 @@ public class ExecutionVertex implements Serializable {
 	public InstanceConnectionInfo getCurrentAssignedResourceLocation() {
 		return currentExecution.getAssignedResourceLocation();
 	}
-
-	public void setOperatorState(StateHandle operatorState) {
-		this.operatorState = operatorState;
-	}
-
-	public StateHandle getOperatorState() {
-		return operatorState;
-	}
 	
 	public ExecutionGraph getExecutionGraph() {
 		return this.jobVertex.getGraph();
 	}
-
+	
 	// --------------------------------------------------------------------------------------------
 	//  Graph building
 	// --------------------------------------------------------------------------------------------
@@ -338,9 +326,11 @@ public class ExecutionVertex implements Serializable {
 	 */
 	public Iterable<Instance> getPreferredLocations() {
 		// if we have hard location constraints, use those
-		List<Instance> constraintInstances = this.locationConstraintInstances;
-		if (constraintInstances != null && !constraintInstances.isEmpty()) {
-			return constraintInstances;
+		{
+			List<Instance> constraintInstances = this.locationConstraintInstances;
+			if (constraintInstances != null && !constraintInstances.isEmpty()) {
+				return constraintInstances;
+			}
 		}
 		
 		// otherwise, base the preferred locations on the input connections
@@ -373,14 +363,16 @@ public class ExecutionVertex implements Serializable {
 	// --------------------------------------------------------------------------------------------
 
 	public void resetForNewExecution() {
-
-		LOG.debug("Resetting execution vertex {} for new execution.", getSimpleName());
-
+		
+		if (LOG.isDebugEnabled()) {
+			LOG.debug("Resetting exection vertex {} for new execution.", getSimpleName());
+		}
+		
 		synchronized (priorExecutions) {
 			Execution execution = currentExecution;
 			ExecutionState state = execution.getState();
 
-			if (state == FINISHED || state == CANCELED || state ==FAILED) {
+			if (state == FINISHED || state == CANCELED || state == FAILED) {
 				priorExecutions.add(execution);
 				currentExecution = new Execution(this, execution.getAttemptNumber()+1,
 						System.currentTimeMillis(), timeout);
@@ -389,11 +381,6 @@ public class ExecutionVertex implements Serializable {
 				if (grp != null) {
 					this.locationConstraint = grp.getLocationConstraint(subTaskIndex);
 				}
-				
-				if (operatorState != null) {
-					execution.setOperatorState(operatorState);
-				}
-				
 			}
 			else {
 				throw new IllegalStateException("Cannot reset a vertex that is in state " + state);
@@ -421,18 +408,18 @@ public class ExecutionVertex implements Serializable {
 	 * Schedules or updates the {@link IntermediateResultPartition} consumer
 	 * tasks of the intermediate result partition with the given index.
 	 */
-	void scheduleOrUpdateConsumers(int partitionIndex) {
+	boolean scheduleOrUpdateConsumers(int partitionIndex) throws Exception {
 		checkElementIndex(partitionIndex, resultPartitions.length);
 
 		IntermediateResultPartition partition = resultPartitions[partitionIndex];
 
-		currentExecution.scheduleOrUpdateConsumers(partition.getConsumers());
+		return currentExecution.scheduleOrUpdateConsumers(partition.getConsumers());
 	}
 	
 	/**
 	 * This method cleans fields that are irrelevant for the archived execution attempt.
 	 */
-	public void prepareForArchiving() throws IllegalStateException {
+	public void prepareForArchiving() {
 		Execution execution = currentExecution;
 		ExecutionState state = execution.getState();
 
@@ -453,14 +440,6 @@ public class ExecutionVertex implements Serializable {
 		this.resultPartitions = null;
 		this.inputEdges = null;
 		this.locationConstraintInstances = null;
-	}
-
-	public void cachePartitionInfo(PartialPartitionInfo partitionInfo){
-		getCurrentExecutionAttempt().cachePartitionInfo(partitionInfo);
-	}
-
-	void sendPartitionInfos() {
-		currentExecution.sendPartitionInfos();
 	}
 
 	// --------------------------------------------------------------------------------------------
@@ -521,7 +500,7 @@ public class ExecutionVertex implements Serializable {
 		return new TaskDeploymentDescriptor(getJobId(), getJobvertexId(), executionId, getTaskName(),
 				subTaskIndex, getTotalNumberOfParallelSubtasks(), getExecutionGraph().getJobConfiguration(),
 				jobVertex.getJobVertex().getConfiguration(), jobVertex.getJobVertex().getInvokableClassName(),
-				producedPartitions, consumedPartitions, jarFiles, slot.getSlotNumber(), operatorState);
+				producedPartitions, consumedPartitions, jarFiles, slot.getSlotNumber());
 	}
 
 	// --------------------------------------------------------------------------------------------

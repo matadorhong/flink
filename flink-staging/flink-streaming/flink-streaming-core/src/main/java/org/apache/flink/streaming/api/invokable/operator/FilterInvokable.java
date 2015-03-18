@@ -34,7 +34,7 @@ public class FilterInvokable<IN> extends ChainableInvokable<IN, IN> {
 
 	@Override
 	public void invoke() throws Exception {
-		while (isRunning && readNext() != null) {
+		while (readNext() != null) {
 			callUserFunctionAndLogException();
 		}
 	}
@@ -49,9 +49,7 @@ public class FilterInvokable<IN> extends ChainableInvokable<IN, IN> {
 
 	@Override
 	public void collect(IN record) {
-		if (isRunning) {
-			nextObject = copy(record);
-			callUserFunctionAndLogException();
-		}
+		nextObject = copy(record);
+		callUserFunctionAndLogException();
 	}
 }

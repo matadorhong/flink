@@ -124,10 +124,6 @@ public final class MapRFileSystem extends FileSystem {
 		return new Path(this.fs.getWorkingDirectory().toUri());
 	}
 
-	public Path getHomeDirectory() {
-		return new Path(this.fs.getHomeDirectory().toUri());
-	}
-
 	@Override
 	public URI getUri() {
 
@@ -301,15 +297,18 @@ public final class MapRFileSystem extends FileSystem {
 	@Override
 	public FSDataInputStream open(final Path f, final int bufferSize)
 			throws IOException {
-		final org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(f.toString());
-		final org.apache.hadoop.fs.FSDataInputStream fdis = this.fs.open(path, bufferSize);
+
+		final org.apache.hadoop.fs.FSDataInputStream fdis = this.fs.open(
+				new org.apache.hadoop.fs.Path(f.toString()), bufferSize);
+
 		return new HadoopDataInputStream(fdis);
 	}
 
 	@Override
 	public FSDataInputStream open(final Path f) throws IOException {
-		final org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(f.toString());
-		final org.apache.hadoop.fs.FSDataInputStream fdis = this.fs.open(path);
+
+		final org.apache.hadoop.fs.FSDataInputStream fdis = this.fs
+				.open(new org.apache.hadoop.fs.Path(f.toString()));
 
 		return new HadoopDataInputStream(fdis);
 	}

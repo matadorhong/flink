@@ -51,13 +51,13 @@ public final class ListKeyGroupedIterator<E> {
 	 * @param input The list with the input elements.
 	 * @param comparator The comparator for the data type iterated over.
 	 */
-	public ListKeyGroupedIterator(List<E> input, TypeSerializer<E> serializer, TypeComparator<E> comparator) {
+	public ListKeyGroupedIterator(List<E> input, TypeSerializer<E> serializer, TypeComparator<E> comparator, boolean copy) {
 		if (input == null || comparator == null) {
 			throw new NullPointerException();
 		}
 
 		this.input = input;
-		this.serializer = serializer;
+		this.serializer = copy ? serializer : null;
 		this.comparator = comparator;
 
 		this.done = input.isEmpty() ? true : false;
@@ -176,7 +176,7 @@ public final class ListKeyGroupedIterator<E> {
 			if (this.next != null) {
 				E current = this.next;
 				this.next = ListKeyGroupedIterator.this.advanceToNext();
-				return serializer.copy(current);
+				return serializer != null ? serializer.copy(current) : current;
 			} else {
 				throw new NoSuchElementException();
 			}

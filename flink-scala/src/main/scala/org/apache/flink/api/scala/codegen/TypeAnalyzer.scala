@@ -18,7 +18,6 @@
 package org.apache.flink.api.scala.codegen
 
 import scala.collection._
-import scala.collection.generic.CanBuildFrom
 import scala.reflect.macros.Context
 import scala.util.DynamicVariable
 
@@ -66,6 +65,8 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
           case NothingType() => NothingDesciptor(id, tpe)
 
+          case TraversableType(elemTpe) => analyzeTraversable(id, tpe, elemTpe)
+
           case EitherType(leftTpe, rightTpe) => analyzeEither(id, tpe, leftTpe, rightTpe)
 
           case TryType(elemTpe) => analyzeTry(id, tpe, elemTpe)
@@ -73,8 +74,6 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
           case OptionType(elemTpe) => analyzeOption(id, tpe, elemTpe)
 
           case CaseClassType() => analyzeCaseClass(id, tpe)
-
-          case TraversableType(elemTpe) => analyzeTraversable(id, tpe, elemTpe)
 
           case ValueType() => ValueDescriptor(id, tpe)
 
@@ -289,22 +288,7 @@ private[flink] trait TypeAnalyzer[C <: Context] { this: MacroContextHolder[C]
 
           traversable match {
             case TypeRef(_, _, elemTpe :: Nil) =>
-
-              // determine whether we can find an implicit for the CanBuildFrom because
-              // TypeInformationGen requires this. This catches the case where a user
-              // has a custom class that implements Iterable[], for example.
-              val cbfTpe = TypeRef(
-                typeOf[CanBuildFrom[_, _, _]],
-                typeOf[CanBuildFrom[_, _, _]].typeSymbol,
-                tpe :: elemTpe :: tpe :: Nil)
-
-              val cbf = c.inferImplicitValue(cbfTpe, silent = true)
-
-              if (cbf == EmptyTree) {
-                None
-              } else {
-                Some(elemTpe.asSeenFrom(tpe, tpe.typeSymbol))
-              }
+              Some(elemTpe.asSeenFrom(tpe, tpe.typeSymbol))
             case _ => None
           }
 

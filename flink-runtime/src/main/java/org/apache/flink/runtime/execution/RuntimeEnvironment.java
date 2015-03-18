@@ -27,10 +27,9 @@ import org.apache.flink.runtime.deployment.PartitionDeploymentDescriptor;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.network.NetworkEnvironment;
+import org.apache.flink.runtime.io.network.api.reader.BufferReader;
 import org.apache.flink.runtime.io.network.api.writer.BufferWriter;
 import org.apache.flink.runtime.io.network.partition.IntermediateResultPartition;
-import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
-import org.apache.flink.runtime.io.network.partition.consumer.SingleInputGate;
 import org.apache.flink.runtime.jobgraph.IntermediateDataSetID;
 import org.apache.flink.runtime.jobgraph.JobID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
@@ -96,9 +95,9 @@ public class RuntimeEnvironment implements Environment, Runnable {
 
 	private final BufferWriter[] writers;
 
-	private final SingleInputGate[] inputGates;
+	private final BufferReader[] readers;
 
-	private final Map<IntermediateDataSetID, SingleInputGate> inputGatesById = new HashMap<IntermediateDataSetID, SingleInputGate>();
+	private final Map<IntermediateDataSetID, BufferReader> readersById = new HashMap<IntermediateDataSetID, BufferReader>();
 
 	public RuntimeEnvironment(
 			ActorRef jobManager, Task owner, TaskDeploymentDescriptor tdd, ClassLoader userCodeClassLoader,
@@ -129,17 +128,14 @@ public class RuntimeEnvironment implements Environment, Runnable {
 			// Consumed intermediate result partitions
 			final List<PartitionConsumerDeploymentDescriptor> consumedPartitions = tdd.getConsumedPartitions();
 
-			this.inputGates = new SingleInputGate[consumedPartitions.size()];
+			this.readers = new BufferReader[consumedPartitions.size()];
 
-			for (int i = 0; i < inputGates.length; i++) {
-				inputGates[i] = SingleInputGate.create(networkEnvironment, consumedPartitions.get(i));
+			for (int i = 0; i < readers.length; i++) {
+				readers[i] = BufferReader.create(this, networkEnvironment, consumedPartitions.get(i));
 
-				// The input gates are organized by key for task updates/channel updates at runtime
-				inputGatesById.put(inputGates[i].getConsumedResultId(), inputGates[i]);
+				// The readers are organized by key for task updates/channel updates at runtime
+				readersById.put(readers[i].getConsumedResultId(), readers[i]);
 			}
-
-			this.jobConfiguration = tdd.getJobConfiguration();
-			this.taskConfiguration = tdd.getTaskConfiguration();
 
 			// ----------------------------------------------------------------
 			// Invokable setup
@@ -166,6 +162,9 @@ public class RuntimeEnvironment implements Environment, Runnable {
 			catch (Throwable t) {
 				throw new Exception("Could not instantiate the invokable class.", t);
 			}
+
+			this.jobConfiguration = tdd.getJobConfiguration();
+			this.taskConfiguration = tdd.getTaskConfiguration();
 
 			this.invokable.setEnvironment(this);
 			this.invokable.registerInputOutput();
@@ -206,7 +205,7 @@ public class RuntimeEnvironment implements Environment, Runnable {
 
 			// Make sure, we enter the catch block when the task has been canceled
 			if (owner.isCanceledOrFailed()) {
-				throw new CancelTaskException("Task has been canceled or failed");
+				throw new CancelTaskException();
 			}
 
 			// Finish the produced partitions
@@ -228,6 +227,8 @@ public class RuntimeEnvironment implements Environment, Runnable {
 			}
 		}
 		catch (Throwable t) {
+			LOG.error("Error during running invokable: " + t.getMessage(), t);
+
 			if (!owner.isCanceledOrFailed()) {
 				// Perform clean up when the task failed and has been not canceled by the user
 				try {
@@ -352,23 +353,23 @@ public class RuntimeEnvironment implements Environment, Runnable {
 	}
 
 	@Override
-	public InputGate getInputGate(int index) {
-		checkElementIndex(index, inputGates.length);
+	public BufferReader getReader(int index) {
+		checkElementIndex(index, readers.length, "Illegal environment reader request.");
 
-		return inputGates[index];
+		return readers[index];
 	}
 
 	@Override
-	public SingleInputGate[] getAllInputGates() {
-		return inputGates;
+	public BufferReader[] getAllReaders() {
+		return readers;
 	}
 
 	public IntermediateResultPartition[] getProducedPartitions() {
 		return producedPartitions;
 	}
 
-	public SingleInputGate getInputGateById(IntermediateDataSetID id) {
-		return inputGatesById.get(id);
+	public BufferReader getReaderById(IntermediateDataSetID id) {
+		return readersById.get(id);
 	}
 
 	@Override

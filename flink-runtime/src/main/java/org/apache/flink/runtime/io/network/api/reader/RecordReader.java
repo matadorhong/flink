@@ -19,7 +19,6 @@
 package org.apache.flink.runtime.io.network.api.reader;
 
 import org.apache.flink.core.io.IOReadableWritable;
-import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 
 import java.io.IOException;
 
@@ -29,8 +28,8 @@ public class RecordReader<T extends IOReadableWritable> extends AbstractRecordRe
 
 	private T currentRecord;
 
-	public RecordReader(InputGate inputGate, Class<T> recordType) {
-		super(inputGate);
+	public RecordReader(BufferReaderBase reader, Class<T> recordType) {
+		super(reader);
 
 		this.recordType = recordType;
 	}

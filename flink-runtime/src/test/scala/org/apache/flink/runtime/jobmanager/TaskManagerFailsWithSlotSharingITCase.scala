@@ -18,14 +18,12 @@
 
 package org.apache.flink.runtime.jobmanager
 
-import akka.actor.Status.{Failure, Success}
 import akka.actor.{Kill, ActorSystem, PoisonPill}
 import akka.testkit.{ImplicitSender, TestKit}
-import org.apache.flink.runtime.client.JobExecutionException
 import org.apache.flink.runtime.jobgraph.{AbstractJobVertex, DistributionPattern, JobGraph}
 import org.apache.flink.runtime.jobmanager.Tasks.{BlockingReceiver, Sender}
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup
-import org.apache.flink.runtime.messages.JobManagerMessages.SubmitJob
+import org.apache.flink.runtime.messages.JobManagerMessages.{JobResultFailed, SubmissionSuccess, SubmitJob}
 import org.apache.flink.runtime.testingUtils.TestingJobManagerMessages._
 import org.apache.flink.runtime.testingUtils.TestingUtils
 import org.junit.runner.RunWith
@@ -70,7 +68,7 @@ ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       try{
         within(TestingUtils.TESTING_DURATION) {
           jm ! SubmitJob(jobGraph)
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(SubmissionSuccess(jobGraph.getJobID))
 
           jm ! WaitForAllVerticesToBeRunningOrFinished(jobID)
 
@@ -79,13 +77,7 @@ ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
           //kill task manager
           taskManagers(0) ! PoisonPill
 
-          val failure = expectMsgType[Failure]
-
-          failure.cause match {
-            case e: JobExecutionException =>
-              jobGraph.getJobID should equal(e.getJobID)
-            case e => fail(s"Received wrong exception $e.")
-          }
+          expectMsgType[JobResultFailed]
         }
       }finally{
         cluster.stop()
@@ -119,7 +111,7 @@ ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
       try{
         within(TestingUtils.TESTING_DURATION) {
           jm ! SubmitJob(jobGraph)
-          expectMsg(Success(jobGraph.getJobID))
+          expectMsg(SubmissionSuccess(jobGraph.getJobID))
 
           jm ! WaitForAllVerticesToBeRunningOrFinished(jobID)
           expectMsg(AllVerticesRunning(jobID))
@@ -127,14 +119,7 @@ ImplicitSender with WordSpecLike with Matchers with BeforeAndAfterAll {
           //kill task manager
           taskManagers(0) ! Kill
 
-          val failure = expectMsgType[Failure]
-
-          failure.cause match {
-            case e: JobExecutionException =>
-              jobGraph.getJobID should equal(e.getJobID)
-
-            case e => fail(s"Received wrong exception $e.")
-          }
+          expectMsgType[JobResultFailed]
         }
       }finally{
         cluster.stop()

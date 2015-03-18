@@ -18,7 +18,7 @@
 
 package org.apache.flink.runtime.jobmanager.scheduler;
 
-import org.apache.flink.util.AbstractID;
+import org.apache.flink.runtime.AbstractID;
 
 public class ResourceId extends AbstractID {
 	private static final long serialVersionUID = 1L;

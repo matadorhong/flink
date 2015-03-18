@@ -21,11 +21,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.tuple.Tuple1;
@@ -50,16 +48,11 @@ public class StreamVertexTest {
 		private Tuple1<Integer> tuple = new Tuple1<Integer>(0);
 
 		@Override
-		public void run(Collector<Tuple1<Integer>> collector) throws Exception {
+		public void invoke(Collector<Tuple1<Integer>> collector) throws Exception {
 			for (int i = 0; i < 10; i++) {
 				tuple.f0 = i;
 				collector.collect(tuple);
 			}
-		}
-
-		@Override
-		public void cancel() {
-			// No cleanup needed
 		}
 	}
 
@@ -82,10 +75,6 @@ public class StreamVertexTest {
 			Integer v = tuple.getField(1);
 			data.put(k, v);
 		}
-
-		@Override
-		public void cancel() {
-		}
 	}
 
 	@SuppressWarnings("unused")
@@ -97,6 +86,7 @@ public class StreamVertexTest {
 	public void wrongJobGraph() {
 		LocalStreamEnvironment env = StreamExecutionEnvironment
 				.createLocalEnvironment(SOURCE_PARALELISM);
+
 
 		try {
 			env.fromCollection(null);
@@ -143,17 +133,14 @@ public class StreamVertexTest {
 		}
 	}
 
+	static HashSet<String> resultSet;
+
 	private static class SetSink implements SinkFunction<String> {
 		private static final long serialVersionUID = 1L;
-		public static Set<String> result = Collections.synchronizedSet(new HashSet<String>());
 
 		@Override
 		public void invoke(String value) {
-			result.add(value);
-		}
-
-		@Override
-		public void cancel() {
+			resultSet.add(value);
 		}
 	}
 
@@ -166,19 +153,19 @@ public class StreamVertexTest {
 
 		fromStringElements.connect(generatedSequence).map(new CoMap()).addSink(new SetSink());
 
+		resultSet = new HashSet<String>();
 		env.execute();
 
 		HashSet<String> expectedSet = new HashSet<String>(Arrays.asList("aa", "bb", "cc", "0", "1",
 				"2", "3"));
-		assertEquals(expectedSet, SetSink.result);
+		assertEquals(expectedSet, resultSet);
 	}
 
 	@Test
 	public void runStream() throws Exception {
 		StreamExecutionEnvironment env = new TestStreamEnvironment(SOURCE_PARALELISM, MEMORYSIZE);
 
-		env.addSource(new MySource()).setParallelism(SOURCE_PARALELISM).map(new MyTask())
-				.addSink(new MySink());
+		env.addSource(new MySource()).setParallelism(SOURCE_PARALELISM).map(new MyTask()).addSink(new MySink());
 
 		env.execute();
 		assertEquals(10, data.keySet().size());

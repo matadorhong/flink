@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.google.common.base.Preconditions.checkState;
 
@@ -39,9 +38,12 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 
 	/** The reader threads used for asynchronous block oriented channel reading. */
 	private final ReaderThread[] readers;
-
-	/** Flag to signify that the IOManager has been shut down already */
-	private final AtomicBoolean isShutdown = new AtomicBoolean();
+	
+	/** Lock object to guard shutdown */
+	private final Object shutdownLock = new Object();
+	
+	/** Flag to mark the I/O manager as alive or shut down */
+	private volatile boolean shutdown;
 	
 	// -------------------------------------------------------------------------
 	//               Constructors / Destructors
@@ -101,12 +103,13 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 	 */
 	@Override
 	public void shutdown() {
-		// mark shut down and exit if it already was shut down
-		if (!isShutdown.compareAndSet(false, true)) {
-			return;
-		}
-
-		try {
+		synchronized (shutdownLock) {
+			if (shutdown) {
+				return;
+			}
+			
+			shutdown = true;
+			
 			if (LOG.isDebugEnabled()) {
 				LOG.debug("Shutting down I/O manager.");
 			}
@@ -138,14 +141,7 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 					rt.join();
 				}
 			}
-			catch (InterruptedException iex) {
-				// ignore this on shutdown
-			}
-		}
-		finally {
-			// make sure we all the super implementation in any case and at the last point,
-			// because this will clean up the I/O directories
-			super.shutdown();
+			catch (InterruptedException iex) {}
 		}
 	}
 	
@@ -164,17 +160,17 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 		
 		boolean writersShutDown = true;
 		for (WriterThread wt : writers) {
-			writersShutDown &= wt.getState() == Thread.State.TERMINATED;
+			readersShutDown &= wt.getState() == Thread.State.TERMINATED;
 		}
 		
-		return isShutdown.get() && readersShutDown && writersShutDown && super.isProperlyShutDown();
+		return shutdown && writersShutDown && readersShutDown;
 	}
 
 
 	@Override
 	public void uncaughtException(Thread t, Throwable e) {
-		LOG.error("IO Thread '" + t.getName() + "' terminated due to an exception. Shutting down I/O Manager.", e);
-		shutdown();
+		LOG.error("IO Thread '" + t.getName() + "' terminated due to an exception. Closing I/O Manager.", e);
+		shutdown();	
 	}
 	
 	// ------------------------------------------------------------------------
@@ -185,13 +181,13 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 	public BlockChannelWriter createBlockChannelWriter(FileIOChannel.ID channelID,
 								LinkedBlockingQueue<MemorySegment> returnQueue) throws IOException
 	{
-		checkState(!isShutdown.get(), "I/O-Manger is shut down.");
+		checkState(!shutdown, "I/O-Manger is closed.");
 		return new AsynchronousBlockWriter(channelID, this.writers[channelID.getThreadNum()].requestQueue, returnQueue);
 	}
 	
 	@Override
 	public BlockChannelWriterWithCallback createBlockChannelWriter(FileIOChannel.ID channelID, RequestDoneCallback<MemorySegment> callback) throws IOException {
-		checkState(!isShutdown.get(), "I/O-Manger is shut down.");
+		checkState(!shutdown, "I/O-Manger is closed.");
 		return new AsynchronousBlockWriterWithCallback(channelID, this.writers[channelID.getThreadNum()].requestQueue, callback);
 	}
 	
@@ -209,7 +205,7 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 	public BlockChannelReader createBlockChannelReader(FileIOChannel.ID channelID,
 										LinkedBlockingQueue<MemorySegment> returnQueue) throws IOException
 	{
-		checkState(!isShutdown.get(), "I/O-Manger is shut down.");
+		checkState(!shutdown, "I/O-Manger is closed.");
 		return new AsynchronousBlockReader(channelID, this.readers[channelID.getThreadNum()].requestQueue, returnQueue);
 	}
 	
@@ -232,7 +228,7 @@ public class IOManagerAsync extends IOManager implements UncaughtExceptionHandle
 	public BulkBlockChannelReader createBulkBlockChannelReader(FileIOChannel.ID channelID,
 			List<MemorySegment> targetSegments,	int numBlocks) throws IOException
 	{
-		checkState(!isShutdown.get(), "I/O-Manger is shut down.");
+		checkState(!shutdown, "I/O-Manger is closed.");
 		return new AsynchronousBulkBlockReader(channelID, this.readers[channelID.getThreadNum()].requestQueue, targetSegments, numBlocks);
 	}
 	

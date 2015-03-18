@@ -53,8 +53,12 @@ public class AccumulatorManager {
 	 * the job.
 	 */
 	public void processIncomingAccumulators(JobID jobID,
-											Map<String, Accumulator<?, ?>> newAccumulators) {
+			Map<String, Accumulator<?, ?>> newAccumulators) {
 		synchronized (this.jobAccumulators) {
+			
+//			System.out.println("JobManager: Received accumulator result for job "
+//					+ jobID.toString());
+//			System.out.println(AccumulatorHelper.getAccumulatorsFormated(newAccumulators));
 			
 			JobAccumulators jobAccumulators = this.jobAccumulators.get(jobID);
 			if (jobAccumulators == null) {
@@ -72,8 +76,8 @@ public class AccumulatorManager {
 		JobAccumulators jobAccumulator = jobAccumulators.get(jobID);
 
 		if(jobAccumulator != null) {
-			for (Map.Entry<String, Accumulator<?, ?>> entry : jobAccumulator.getAccumulators().
-					entrySet()) {
+			for (Map.Entry<String, Accumulator<?, ?>> entry : jobAccumulators.get(jobID)
+					.getAccumulators().entrySet()) {
 				result.put(entry.getKey(), entry.getValue().getLocalValue());
 			}
 		}

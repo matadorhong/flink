@@ -19,14 +19,13 @@
 package org.apache.flink.runtime.io.network.api.reader;
 
 import org.apache.flink.core.io.IOReadableWritable;
-import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 
 import java.io.IOException;
 
 public class MutableRecordReader<T extends IOReadableWritable> extends AbstractRecordReader<T> implements MutableReader<T> {
 
-	public MutableRecordReader(InputGate inputGate) {
-		super(inputGate);
+	public MutableRecordReader(BufferReaderBase reader) {
+		super(reader);
 	}
 
 	@Override

@@ -69,11 +69,18 @@ public class CollectionExecutor {
 	
 	private final ClassLoader classLoader;
 	
-	private final ExecutionConfig executionConfig;
+	private final boolean mutableObjectSafeMode;
 
+	private final ExecutionConfig executionConfig;
+	
 	// --------------------------------------------------------------------------------------------
 	
 	public CollectionExecutor(ExecutionConfig executionConfig) {
+		this(executionConfig, DEFAULT_MUTABLE_OBJECT_SAFE_MODE);
+	}
+		
+	public CollectionExecutor(ExecutionConfig executionConfig, boolean mutableObjectSafeMode) {
+		this.mutableObjectSafeMode = mutableObjectSafeMode;
 		this.executionConfig = executionConfig;
 		
 		this.intermediateResults = new HashMap<Operator<?>, List<?>>();
@@ -164,7 +171,7 @@ public class CollectionExecutor {
 	private <OUT> List<OUT> executeDataSource(GenericDataSourceBase<?, ?> source) throws Exception {
 		@SuppressWarnings("unchecked")
 		GenericDataSourceBase<OUT, ?> typedSource = (GenericDataSourceBase<OUT, ?>) source;
-		return typedSource.executeOnCollections(executionConfig);
+		return typedSource.executeOnCollections(executionConfig, mutableObjectSafeMode);
 	}
 	
 	private <IN, OUT> List<OUT> executeUnaryOperator(SingleInputOperator<?, ?, ?> operator, int superStep) throws Exception {

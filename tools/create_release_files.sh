@@ -28,11 +28,6 @@
 #
 #  https://github.com/apache/spark/blob/master/dev/create-release/create-release.sh
 #
-
-# Added by rmetzger
-echo "Please make sure to use java 6 OPENJDK (not oracle) to build the release binaries"
-exit 1
-
 CURR_DIR=`pwd`
 if [[ `basename $CURR_DIR` != "tools" ]] ; then
   echo "You have to call the script from the tools/ dir"
@@ -60,7 +55,7 @@ sonatype_pw=${sonatype_pw:-XXX}
 
 # create source package
 
-git clone http://git-wip-us.apache.org/repos/asf/flink.git flink
+git clone https://github.com/apache/flink.git flink
 cd flink
 git checkout -b "$RELEASE_BRANCH-$RELEASE_CANDIDATE" origin/$RELEASE_BRANCH
 rm .gitignore
@@ -81,11 +76,6 @@ echo "Echo created release hash $RELEASE_HASH"
 
 cd ..
 
-
-## NOTE: if gpg is not working, follow these instructions:
-# https://wiki.archlinux.org/index.php/GnuPG#Unattended_passphrase
-# info taken from:
-# http://www.reddit.com/r/archlinux/comments/2nmr4a/after_upgrade_to_gpg_210_mutt_and_gpg_no_longer/
 
 echo "Creating source package"
 cp -r flink flink-$RELEASE_VERSION
@@ -152,7 +142,7 @@ cd flink
 cp ../../deploysettings.xml . 
 echo "For your reference, the command:\n\t $MVN clean deploy -Prelease --settings deploysettings.xml -DskipTests -Dgpg.keyname=$GPG_KEY -Dgpg.passphrase=$GPG_PASSPHRASE ./tools/generate_specific_pom.sh $NEW_VERSION $NEW_VERSION_HADOOP1 pom.xml"
 $MVN clean deploy -Prelease,docs-and-source --settings deploysettings.xml -DskipTests -Dgpg.executable=$GPG -Dgpg.keyname=$GPG_KEY -Dgpg.passphrase=$GPG_PASSPHRASE -DretryFailedDeploymentCount=10
-../generate_specific_pom.sh $NEW_VERSION $NEW_VERSION_HADOOP1 pom.xml
+./tools/generate_specific_pom.sh $NEW_VERSION $NEW_VERSION_HADOOP1 pom.xml
 sleep 4
 $MVN clean deploy -Dgpg.executable=$GPG -Prelease,docs-and-source --settings deploysettings.xml -DskipTests -Dgpg.keyname=$GPG_KEY -Dgpg.passphrase=$GPG_PASSPHRASE -DretryFailedDeploymentCount=10
 

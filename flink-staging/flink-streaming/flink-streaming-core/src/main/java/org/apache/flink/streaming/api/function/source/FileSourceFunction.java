@@ -23,26 +23,32 @@ import java.util.NoSuchElementException;
 import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.common.typeutils.TypeSerializerFactory;
+import org.apache.flink.api.java.typeutils.runtime.RuntimeSerializerFactory;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.io.InputSplit;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
 import org.apache.flink.streaming.api.streamvertex.StreamingRuntimeContext;
 import org.apache.flink.util.Collector;
 
-public class FileSourceFunction extends RichParallelSourceFunction<String> {
+public class FileSourceFunction extends RichSourceFunction<String> {
 	private static final long serialVersionUID = 1L;
 
 	private InputSplitProvider provider;
 
 	private InputFormat<String, ?> inputFormat;
 
-	private TypeInformation<String> typeInfo;
-
-	private volatile boolean isRunning;
+	private TypeSerializerFactory<String> serializerFactory;
 
 	public FileSourceFunction(InputFormat<String, ?> format, TypeInformation<String> typeInfo) {
 		this.inputFormat = format;
-		this.typeInfo = typeInfo;
+		this.serializerFactory = createSerializer(typeInfo);
+	}
+
+	private TypeSerializerFactory<String> createSerializer(TypeInformation<String> typeInfo) {
+		TypeSerializer<String> serializer = typeInfo.createSerializer(getRuntimeContext().getExecutionConfig());
+
+		return new RuntimeSerializerFactory<String>(serializer, typeInfo.getTypeClass());
 	}
 
 	@Override
@@ -53,32 +59,32 @@ public class FileSourceFunction extends RichParallelSourceFunction<String> {
 	}
 
 	@Override
-	public void run(Collector<String> collector) throws Exception {
-		isRunning = true;
-		final TypeSerializer<String> serializer = typeInfo.createSerializer(getRuntimeContext()
-				.getExecutionConfig());
+	public void invoke(Collector<String> collector) throws Exception {
+		final TypeSerializer<String> serializer = serializerFactory.getSerializer();
 		final Iterator<InputSplit> splitIterator = getInputSplits();
 		@SuppressWarnings("unchecked")
 		final InputFormat<String, InputSplit> format = (InputFormat<String, InputSplit>) this.inputFormat;
 		try {
-			while (isRunning && splitIterator.hasNext()) {
+			while (splitIterator.hasNext()) {
 
 				final InputSplit split = splitIterator.next();
 				String record = serializer.createInstance();
 
 				format.open(split);
-				while (!format.reachedEnd()) {
-					if ((record = format.nextRecord(record)) != null) {
-						collector.collect(record);
+				try {
+					while (!format.reachedEnd()) {
+						if ((record = format.nextRecord(record)) != null) {
+							collector.collect(record);
+						}
 					}
+				} finally {
+					format.close();
 				}
-
 			}
 			collector.close();
-		} finally {
-			format.close();
+		} catch (Exception ex) {
+			ex.printStackTrace();
 		}
-		isRunning = false;
 	}
 
 	private Iterator<InputSplit> getInputSplits() {
@@ -126,10 +132,5 @@ public class FileSourceFunction extends RichParallelSourceFunction<String> {
 				throw new UnsupportedOperationException();
 			}
 		};
-	}
-
-	@Override
-	public void cancel() {
-		isRunning = false;
 	}
 }

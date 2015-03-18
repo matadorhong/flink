@@ -103,8 +103,7 @@ public class PipelinedPartitionQueue implements IntermediateResultPartitionQueue
 	}
 
 	@Override
-	public IntermediateResultPartitionQueueIterator getQueueIterator(Optional<BufferProvider> bufferProvider)
-			throws IllegalQueueIteratorRequestException {
+	public IntermediateResultPartitionQueueIterator getQueueIterator(Optional<BufferProvider> bufferProvider) throws IllegalQueueIteratorRequestException {
 		synchronized (queue) {
 			if (hasBeenDiscarded) {
 				throw new IllegalQueueIteratorRequestException("Queue has been discarded during produce phase.");

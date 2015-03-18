@@ -17,10 +17,10 @@
 
 package org.apache.flink.streaming.api.function.source;
 
-/**
- * {@link SourceFunction} that may be executed in parallel.
- *
- * @param <OUT>
- */
+import org.apache.flink.util.Collector;
+
 public interface ParallelSourceFunction<OUT> extends SourceFunction<OUT> {
+
+	public void invoke(Collector<OUT> collector) throws Exception;
+		
 }

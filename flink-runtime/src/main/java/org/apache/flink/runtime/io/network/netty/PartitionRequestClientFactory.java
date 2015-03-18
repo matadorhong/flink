@@ -48,70 +48,57 @@ class PartitionRequestClientFactory {
 	 * Atomically establishes a TCP connection to the given remote address and
 	 * creates a {@link PartitionRequestClient} instance for this connection.
 	 */
-	PartitionRequestClient createPartitionRequestClient(RemoteAddress remoteAddress) throws IOException, InterruptedException {
-		Object entry;
-		PartitionRequestClient client = null;
+	PartitionRequestClient createPartitionRequestClient(RemoteAddress remoteAddress) throws IOException {
+		final Object entry = clients.get(remoteAddress);
 
-		while (client == null) {
-			entry = clients.get(remoteAddress);
-
-			if (entry != null) {
-				// Existing channel or connecting channel
-				if (entry instanceof PartitionRequestClient) {
-					client = (PartitionRequestClient) entry;
-				}
-				else {
-					ConnectingChannel future = (ConnectingChannel) entry;
-					client = future.waitForChannel();
-
-					clients.replace(remoteAddress, future, client);
-				}
+		final PartitionRequestClient client;
+		if (entry != null) {
+			// Existing channel or connecting channel
+			if (entry instanceof PartitionRequestClient) {
+				client = (PartitionRequestClient) entry;
 			}
 			else {
-				// No channel yet. Create one, but watch out for a race.
-				// We create a "connecting future" and atomically add it to the map.
-				// Only the thread that really added it establishes the channel.
-				// The others need to wait on that original establisher's future.
-				ConnectingChannel connectingChannel = new ConnectingChannel(remoteAddress, this);
-				Object old = clients.putIfAbsent(remoteAddress, connectingChannel);
+				ConnectingChannel future = (ConnectingChannel) entry;
+				client = future.waitForChannel();
+			}
+		}
+		else {
+			// No channel yet. Create one, but watch out for a race.
+			// We create a "connecting future" and atomically add it to the map.
+			// Only the thread that really added it establishes the channel.
+			// The others need to wait on that original establisher's future.
+			ConnectingChannel connectingChannel = new ConnectingChannel(remoteAddress, this);
+			Object old = clients.putIfAbsent(remoteAddress, connectingChannel);
 
-				if (old == null) {
-					nettyClient.connect(remoteAddress.getAddress()).addListener(connectingChannel);
+			if (old == null) {
+				nettyClient.connect(remoteAddress.getAddress()).addListener(connectingChannel);
 
-					client = connectingChannel.waitForChannel();
+				client = connectingChannel.waitForChannel();
 
-					clients.replace(remoteAddress, connectingChannel, client);
-				}
-				else if (old instanceof ConnectingChannel) {
-					client = ((ConnectingChannel) old).waitForChannel();
+				Object previous = clients.put(remoteAddress, client);
 
-					clients.replace(remoteAddress, old, client);
-				}
-				else {
-					client = (PartitionRequestClient) old;
+				if (connectingChannel != previous) {
+					throw new IOException("Race condition while establishing channel connection.");
 				}
 			}
-
-			// Make sure to increment the reference count before handing a client
-			// out to ensure correct bookkeeping for channel closing.
-			if (!client.incrementReferenceCounter()) {
-				destroyPartitionRequestClient(remoteAddress, client);
-				client = null;
+			else if (old instanceof ConnectingChannel) {
+				client = ((ConnectingChannel) old).waitForChannel();
+			}
+			else {
+				client = (PartitionRequestClient) old;
 			}
 		}
 
-		return client;
-	}
+		// Make sure to increment the reference count before handing a client
+		// out to ensure correct bookkeeping for channel closing.
+		if (client.incrementReferenceCounter()) {
+			return client;
+		}
+		else {
+			// There was a race with a close, try again.
+			destroyPartitionRequestClient(remoteAddress, client);
 
-	public void closeOpenChannelConnections(RemoteAddress remoteAddress) {
-		Object entry = clients.get(remoteAddress);
-
-		if (entry instanceof ConnectingChannel) {
-			ConnectingChannel channel = (ConnectingChannel) entry;
-
-			if (channel.dispose()) {
-				clients.remove(remoteAddress, channel);
-			}
+			return createPartitionRequestClient(remoteAddress);
 		}
 	}
 
@@ -134,47 +121,18 @@ class PartitionRequestClientFactory {
 
 		private final PartitionRequestClientFactory clientFactory;
 
-		private boolean disposeRequestClient = false;
-
 		public ConnectingChannel(RemoteAddress remoteAddress, PartitionRequestClientFactory clientFactory) {
 			this.remoteAddress = remoteAddress;
 			this.clientFactory = clientFactory;
 		}
 
-		private boolean dispose() {
-			boolean result;
-			synchronized (connectLock) {
-				if (partitionRequestClient != null) {
-					result = partitionRequestClient.disposeIfNotUsed();
-				}
-				else {
-					disposeRequestClient = true;
-					result = true;
-				}
-
-				connectLock.notifyAll();
-			}
-
-			return result;
-		}
-
 		private void handInChannel(Channel channel) {
 			synchronized (connectLock) {
-				try {
-					PartitionRequestClientHandler requestHandler =
-							(PartitionRequestClientHandler) channel.pipeline().get(PartitionRequestProtocol.CLIENT_REQUEST_HANDLER_NAME);
+				PartitionRequestClientHandler requestHandler =
+						(PartitionRequestClientHandler) channel.pipeline().get(PartitionRequestProtocol.CLIENT_REQUEST_HANDLER_NAME);
 
-					partitionRequestClient = new PartitionRequestClient(channel, requestHandler, remoteAddress, clientFactory);
-
-					if (disposeRequestClient) {
-						partitionRequestClient.disposeIfNotUsed();
-					}
-
-					connectLock.notifyAll();
-				}
-				catch (Throwable t) {
-					notifyOfError(t);
-				}
+				partitionRequestClient = new PartitionRequestClient(channel, requestHandler, remoteAddress, clientFactory);
+				connectLock.notifyAll();
 			}
 		}
 
@@ -182,10 +140,15 @@ class PartitionRequestClientFactory {
 
 		private volatile Throwable error;
 
-		private PartitionRequestClient waitForChannel() throws IOException, InterruptedException {
+		private PartitionRequestClient waitForChannel() throws IOException {
 			synchronized (connectLock) {
 				while (error == null && partitionRequestClient == null) {
-					connectLock.wait(2000);
+					try {
+						connectLock.wait(2000);
+					}
+					catch (InterruptedException e) {
+						throw new RuntimeException("Wait for channel connection interrupted.");
+					}
 				}
 			}
 

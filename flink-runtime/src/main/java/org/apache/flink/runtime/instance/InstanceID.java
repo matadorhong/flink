@@ -18,18 +18,11 @@
 
 package org.apache.flink.runtime.instance;
 
-import org.apache.flink.util.AbstractID;
+import org.apache.flink.runtime.AbstractID;
 
 /**
  * Class for statistically unique instance IDs.
  */
 public class InstanceID extends AbstractID {
 	private static final long serialVersionUID = 1L;
-
-	public InstanceID() {
-	}
-
-	public InstanceID(byte[] bytes) {
-		super(bytes);
-	}
 }

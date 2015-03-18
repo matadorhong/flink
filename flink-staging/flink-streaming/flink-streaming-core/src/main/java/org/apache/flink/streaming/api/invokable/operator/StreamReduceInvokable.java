@@ -35,7 +35,7 @@ public class StreamReduceInvokable<IN> extends ChainableInvokable<IN, IN> {
 
 	@Override
 	public void invoke() throws Exception {
-		while (isRunning && readNext() != null) {
+		while (readNext() != null) {
 			reduce();
 		}
 	}
@@ -51,7 +51,7 @@ public class StreamReduceInvokable<IN> extends ChainableInvokable<IN, IN> {
 		nextValue = nextObject;
 
 		if (currentValue != null) {
-			currentValue = reducer.reduce(copy(currentValue), nextValue);
+			currentValue = reducer.reduce(currentValue, nextValue);
 		} else {
 			currentValue = nextValue;
 
@@ -62,10 +62,8 @@ public class StreamReduceInvokable<IN> extends ChainableInvokable<IN, IN> {
 
 	@Override
 	public void collect(IN record) {
-		if (isRunning) {
-			nextObject = copy(record);
-			callUserFunctionAndLogException();
-		}
+		nextObject = copy(record);
+		callUserFunctionAndLogException();
 	}
 
 }

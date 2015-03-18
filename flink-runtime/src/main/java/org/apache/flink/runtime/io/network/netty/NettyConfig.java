@@ -31,21 +31,9 @@ public class NettyConfig {
 
 	private static final Logger LOG = LoggerFactory.getLogger(NettyConfig.class);
 
-	// - Config keys ----------------------------------------------------------
-
 	public static final String NUM_THREADS_SERVER = "taskmanager.net.server.numThreads";
 
 	public static final String NUM_THREADS_CLIENT = "taskmanager.net.client.numThreads";
-
-	public static final String CONNECT_BACKLOG = "taskmanager.net.server.backlog";
-
-	public static final String CLIENT_CONNECT_TIMEOUT_SECONDS = "taskmanager.net.client.connectTimeoutSec";
-
-	public static final String SEND_RECEIVE_BUFFER_SIZE = "taskmanager.net.sendReceiveBufferSize";
-
-	public static final String TRANSPORT_TYPE = "taskmanager.net.transport";
-
-	// ------------------------------------------------------------------------
 
 	static enum TransportType {
 		NIO, EPOLL, AUTO
@@ -90,62 +78,10 @@ public class NettyConfig {
 	}
 
 	// ------------------------------------------------------------------------
-	// Setters
-	// ------------------------------------------------------------------------
-
-	NettyConfig setServerConnectBacklog(int connectBacklog) {
-		checkArgument(connectBacklog >= 0);
-		config.setInteger(CONNECT_BACKLOG, connectBacklog);
-
-		return this;
-	}
-
-	NettyConfig setServerNumThreads(int numThreads) {
-		checkArgument(numThreads >= 0);
-		config.setInteger(NUM_THREADS_SERVER, numThreads);
-
-		return this;
-	}
-
-	NettyConfig setClientNumThreads(int numThreads) {
-		checkArgument(numThreads >= 0);
-		config.setInteger(NUM_THREADS_CLIENT, numThreads);
-
-		return this;
-	}
-
-	NettyConfig setClientConnectTimeoutSeconds(int connectTimeoutSeconds) {
-		checkArgument(connectTimeoutSeconds >= 0);
-		config.setInteger(CLIENT_CONNECT_TIMEOUT_SECONDS, connectTimeoutSeconds);
-
-		return this;
-	}
-
-	NettyConfig setSendAndReceiveBufferSize(int bufferSize) {
-		checkArgument(bufferSize >= 0);
-		config.setInteger(SEND_RECEIVE_BUFFER_SIZE, bufferSize);
-
-		return this;
-	}
-
-	NettyConfig setTransportType(String transport) {
-		if (transport.equals("nio") || transport.equals("epoll") || transport.equals("auto")) {
-			config.setString(TRANSPORT_TYPE, transport);
-		}
-		else {
-			throw new IllegalArgumentException("Unknown transport type.");
-		}
-
-		return this;
-	}
-
-	// ------------------------------------------------------------------------
-	// Getters
-	// ------------------------------------------------------------------------
 
 	int getServerConnectBacklog() {
 		// default: 0 => Netty's default
-		return config.getInteger(CONNECT_BACKLOG, 0);
+		return config.getInteger("taskmanager.net.server.backlog", 0);
 	}
 
 	int getServerNumThreads() {
@@ -158,18 +94,18 @@ public class NettyConfig {
 		return config.getInteger(NUM_THREADS_CLIENT, 0);
 	}
 
-	int getClientConnectTimeoutSeconds() {
+	int getClientConnectTimeoutMs() {
 		// default: 120s = 2min
-		return config.getInteger(CLIENT_CONNECT_TIMEOUT_SECONDS, 120);
+		return config.getInteger("taskmanager.net.client.connectTimeoutSec", 120);
 	}
 
 	int getSendAndReceiveBufferSize() {
 		// default: 0 => Netty's default
-		return config.getInteger(SEND_RECEIVE_BUFFER_SIZE, 0);
+		return config.getInteger("taskmanager.net.sendReceiveBufferSize", 0);
 	}
 
 	TransportType getTransportType() {
-		String transport = config.getString(TRANSPORT_TYPE, "nio");
+		String transport = config.getString("taskmanager.net.transport", "nio");
 
 		if (transport.equals("nio")) {
 			return TransportType.NIO;
@@ -202,7 +138,7 @@ public class NettyConfig {
 				getTransportType(), getServerNumThreads(), getServerNumThreads() == 0 ? def : man,
 				getClientNumThreads(), getClientNumThreads() == 0 ? def : man,
 				getServerConnectBacklog(), getServerConnectBacklog() == 0 ? def : man,
-				getClientConnectTimeoutSeconds(), getSendAndReceiveBufferSize(),
+				getClientConnectTimeoutMs(), getSendAndReceiveBufferSize(),
 				getSendAndReceiveBufferSize() == 0 ? def : man);
 	}
 }

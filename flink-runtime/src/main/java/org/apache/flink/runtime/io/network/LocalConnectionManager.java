@@ -39,9 +39,6 @@ public class LocalConnectionManager implements ConnectionManager {
 	}
 
 	@Override
-	public void closeOpenChannelConnections(RemoteAddress remoteAddress) {}
-
-	@Override
 	public int getNumberOfActiveConnections() {
 		return 0;
 	}

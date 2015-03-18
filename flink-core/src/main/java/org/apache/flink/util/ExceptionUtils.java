@@ -24,7 +24,6 @@
 
 package org.apache.flink.util;
 
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
@@ -58,7 +57,7 @@ public class ExceptionUtils {
 	
 	/**
 	 * Throws the given {@code Throwable} in scenarios where the signatures do not allow you to
-	 * throw an arbitrary Throwable. Errors and RuntimeExceptions are thrown directly, other exceptions
+	 * throw arbitrary Throwables. Errors and RuntimeExceptions are thrown directly, other exceptions
 	 * are packed into runtime exceptions
 	 * 
 	 * @param t The throwable to be thrown.
@@ -77,8 +76,8 @@ public class ExceptionUtils {
 	
 	/**
 	 * Throws the given {@code Throwable} in scenarios where the signatures do not allow you to
-	 * throw an arbitrary Throwable. Errors and RuntimeExceptions are thrown directly, other exceptions
-	 * are packed into a parent RuntimeException.
+	 * throw arbitrary Throwables. Errors and RuntimeExceptions are thrown directly, other exceptions
+	 * are packed into a parent RuntimeEception.
 	 * 
 	 * @param t The throwable to be thrown.
 	 * @param parentMessage The message for the parent RuntimeException, if one is needed.
@@ -92,25 +91,6 @@ public class ExceptionUtils {
 		}
 		else {
 			throw new RuntimeException(parentMessage, t);
-		}
-	}
-
-	/**
-	 * Tries to throw the given {@code Throwable} in scenarios where the signatures allows only IOExceptions
-	 * (and RuntimeException and Error). Throws this exception directly, if it is an IOException,
-	 * a RuntimeException, or an Error. Otherwise does nothing.
-	 *
-	 * @param t The throwable to be thrown.
-	 */
-	public static void tryRethrowIOException(Throwable t) throws IOException {
-		if (t instanceof IOException) {
-			throw (IOException) t;
-		}
-		else if (t instanceof RuntimeException) {
-			throw (RuntimeException) t;
-		}
-		else if (t instanceof Error) {
-			throw (Error) t;
 		}
 	}
 }

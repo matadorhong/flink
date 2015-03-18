@@ -23,7 +23,6 @@ import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.graph.Edge;
 import org.apache.flink.graph.Graph;
 import org.apache.flink.graph.Vertex;
@@ -43,83 +42,31 @@ public class LabelPropagationExample implements ProgramDescription {
 
 	public static void main(String[] args) throws Exception {
 
-		if(!parseParameters(args)) {
-			return;
-		}
-
-		// Set up the execution environment
 		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		// Set up the graph
 		DataSet<Vertex<Long, Long>> vertices = getVertexDataSet(env);
 		DataSet<Edge<Long, NullValue>> edges = getEdgeDataSet(env);
 
 		Graph<Long, Long, NullValue> graph = Graph.fromDataSet(vertices, edges,	env);
 
-		// Set up the program
 		DataSet<Vertex<Long, Long>> verticesWithCommunity = graph.run(
 				new LabelPropagation<Long>(maxIterations)).getVertices();
 
-		// Emit results
-		if(fileOutput) {
-			verticesWithCommunity.writeAsCsv(outputPath, "\n", ",");
-		} else {
-			verticesWithCommunity.print();
-		}
+		verticesWithCommunity.print();
 
-		// Execute the program
-		env.execute("Label Propagation Example");
+		env.execute();
 	}
 
-	// *************************************************************************
-	//     UTIL METHODS
-	// *************************************************************************
+	@Override
+	public String getDescription() {
+		return "Label Propagation Example";
+	}
 
-	private static boolean fileOutput = false;
-	private static String vertexInputPath = null;
-	private static String edgeInputPath = null;
-	private static String outputPath = null;
 	private static long numVertices = 100;
-	private static int maxIterations = 10;
-
-	private static boolean parseParameters(String[] args) {
-
-		if(args.length > 0) {
-			if(args.length != 4) {
-				System.err.println("Usage: LabelPropagation <vertex path> <edge path> <output path> <num iterations>");
-				return false;
-			}
-
-			fileOutput = true;
-			vertexInputPath = args[0];
-			edgeInputPath = args[1];
-			outputPath = args[2];
-			maxIterations = Integer.parseInt(args[3]);
-		} else {
-			System.out.println("Executing LabelPropagation example with default parameters and built-in default data.");
-			System.out.println("  Provide parameters to read input data from files.");
-			System.out.println("  See the documentation for the correct format of input files.");
-			System.out.println("  Usage: LabelPropagation <vertex path> <edge path> <output path> <num iterations>");
-		}
-		return true;
-	}
+	private static int maxIterations = 20;
 
 	@SuppressWarnings("serial")
 	private static DataSet<Vertex<Long, Long>> getVertexDataSet(ExecutionEnvironment env) {
-
-		if (fileOutput) {
-			return env.readCsvFile(vertexInputPath)
-					.fieldDelimiter(" ")
-					.lineDelimiter("\n")
-					.types(Long.class, Long.class)
-					.map(new MapFunction<Tuple2<Long, Long>, Vertex<Long, Long>>() {
-						@Override
-						public Vertex<Long, Long> map(Tuple2<Long, Long> value) throws Exception {
-							return new Vertex<Long, Long>(value.f0, value.f1);
-						}
-					});
-		}
-
 		return env.generateSequence(1, numVertices).map(
 				new MapFunction<Long, Vertex<Long, Long>>() {
 					public Vertex<Long, Long> map(Long l) throws Exception {
@@ -130,20 +77,6 @@ public class LabelPropagationExample implements ProgramDescription {
 
 	@SuppressWarnings("serial")
 	private static DataSet<Edge<Long, NullValue>> getEdgeDataSet(ExecutionEnvironment env) {
-
-		if (fileOutput) {
-			return env.readCsvFile(edgeInputPath)
-					.fieldDelimiter(" ")
-					.lineDelimiter("\n")
-					.types(Long.class, Long.class)
-					.map(new MapFunction<Tuple2<Long, Long>, Edge<Long, NullValue>>() {
-						@Override
-						public Edge<Long, NullValue> map(Tuple2<Long, Long> value) throws Exception {
-							return new Edge<Long, NullValue>(value.f0, value.f1, NullValue.getInstance());
-						}
-					});
-		}
-
 		return env.generateSequence(1, numVertices).flatMap(
 				new FlatMapFunction<Long, Edge<Long, NullValue>>() {
 					@Override
@@ -157,10 +90,5 @@ public class LabelPropagationExample implements ProgramDescription {
 						}
 					}
 				});
-	}
-
-	@Override
-	public String getDescription() {
-		return "Label Propagation Example";
 	}
 }

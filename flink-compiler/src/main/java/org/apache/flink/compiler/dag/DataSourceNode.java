@@ -24,25 +24,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.flink.api.common.functions.Partitioner;
 import org.apache.flink.api.common.io.FileInputFormat;
 import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.api.common.io.NonParallelInput;
 import org.apache.flink.api.common.io.ReplicatingInputFormat;
 import org.apache.flink.api.common.io.statistics.BaseStatistics;
 import org.apache.flink.api.common.operators.GenericDataSourceBase;
-import org.apache.flink.api.common.operators.GenericDataSourceBase.SplitDataProperties;
 import org.apache.flink.api.common.operators.Operator;
-import org.apache.flink.api.common.operators.Ordering;
 import org.apache.flink.api.common.operators.SemanticProperties;
 import org.apache.flink.api.common.operators.SemanticProperties.EmptySemanticProperties;
-import org.apache.flink.api.common.operators.util.FieldList;
 import org.apache.flink.compiler.DataStatistics;
 import org.apache.flink.compiler.PactCompiler;
 import org.apache.flink.compiler.costs.CostEstimator;
 import org.apache.flink.compiler.costs.Costs;
-import org.apache.flink.compiler.dataproperties.GlobalProperties;
-import org.apache.flink.compiler.dataproperties.LocalProperties;
 import org.apache.flink.compiler.plan.PlanNode;
 import org.apache.flink.compiler.plan.SourcePlanNode;
 import org.apache.flink.configuration.Configuration;
@@ -56,10 +50,6 @@ public class DataSourceNode extends OptimizerNode {
 	private final boolean sequentialInput;
 
 	private final boolean replicatedInput;
-
-	private GlobalProperties gprops;
-
-	private LocalProperties lprops;
 
 	/**
 	 * Creates a new DataSourceNode for the given contract.
@@ -86,20 +76,6 @@ public class DataSourceNode extends OptimizerNode {
 		} else {
 			this.replicatedInput = false;
 		}
-
-		this.gprops = new GlobalProperties();
-		this.lprops = new LocalProperties();
-
-		SplitDataProperties<?> splitProps = pactContract.getSplitDataProperties();
-
-		if(replicatedInput) {
-			this.gprops.setFullyReplicated();
-			this.lprops = new LocalProperties();
-		} else if (splitProps != null) {
-			// configure data properties of data source using split properties
-			setDataPropertiesFromSplitProperties(splitProps);
-		}
-
 	}
 
 	/**
@@ -208,8 +184,7 @@ public class DataSourceNode extends OptimizerNode {
 			return this.cachedPlans;
 		}
 
-		SourcePlanNode candidate = new SourcePlanNode(this, "DataSource ("+this.getPactContract().getName()+")",
-				this.gprops, this.lprops);
+		SourcePlanNode candidate = new SourcePlanNode(this, "DataSource ("+this.getPactContract().getName()+")");
 
 		if(!replicatedInput) {
 			candidate.updatePropertiesWithUniqueSets(getUniqueFields());
@@ -230,6 +205,8 @@ public class DataSourceNode extends OptimizerNode {
 				estimator.addFileInputCost(this.estimatedOutputSize * this.getDegreeOfParallelism(), costs);
 			}
 			candidate.setCosts(costs);
+
+			candidate.getGlobalProperties().setFullyReplicated();
 		}
 
 		// since there is only a single plan for the data-source, return a list with that element only
@@ -249,59 +226,6 @@ public class DataSourceNode extends OptimizerNode {
 	public void accept(Visitor<OptimizerNode> visitor) {
 		if (visitor.preVisit(this)) {
 			visitor.postVisit(this);
-		}
-	}
-
-	private void setDataPropertiesFromSplitProperties(SplitDataProperties splitProps) {
-
-		// set global properties
-		int[] partitionKeys = splitProps.getSplitPartitionKeys();
-		Partitioner<?> partitioner = splitProps.getSplitPartitioner();
-
-		if(partitionKeys != null && partitioner != null) {
-			this.gprops.setCustomPartitioned(new FieldList(partitionKeys), partitioner);
-		}
-		else if(partitionKeys != null) {
-			this.gprops.setAnyPartitioning(new FieldList(partitionKeys));
-		}
-		// set local properties
-		int[] groupingKeys = splitProps.getSplitGroupKeys();
-		Ordering ordering = splitProps.getSplitOrder();
-
-		// more than one split per source tasks possible.
-		// adapt split grouping and sorting
-		if(ordering != null) {
-
-			// sorting falls back to grouping because a source can read multiple,
-			// randomly assigned splits
-			groupingKeys = ordering.getFieldPositions();
-		}
-
-		if(groupingKeys != null && partitionKeys != null) {
-			// check if grouping is also valid across splits, i.e., whether grouping keys are
-			// valid superset of partition keys
-			boolean allFieldsIncluded = true;
-			for(int i : partitionKeys) {
-				boolean fieldIncluded = false;
-				for(int j : groupingKeys) {
-					if(i == j) {
-						fieldIncluded = true;
-						break;
-					}
-				}
-				if(!fieldIncluded) {
-					allFieldsIncluded = false;
-					break;
-				}
-			}
-			if (allFieldsIncluded) {
-				this.lprops = LocalProperties.forGrouping(new FieldList(groupingKeys));
-			} else {
-				this.lprops = new LocalProperties();
-			}
-
-		} else {
-			this.lprops = new LocalProperties();
 		}
 	}
 }

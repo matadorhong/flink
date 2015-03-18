@@ -16,22 +16,22 @@
  * limitations under the License.
  */
 
-package org.apache.flink.runtime.memorymanager;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.flink.core.memory.MemorySegment;
-import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
+package org.apache.flink.runtime.memorymanager;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.flink.core.memory.MemorySegment;
+import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 
 
 public class DefaultMemoryManager implements MemoryManager {
@@ -266,6 +266,8 @@ public class DefaultMemoryManager implements MemoryManager {
 
 	@Override
 	public <T extends MemorySegment> void release(Collection<T> segments) {
+		
+		// sanity checks
 		if (segments == null) {
 			return;
 		}
@@ -277,62 +279,49 @@ public class DefaultMemoryManager implements MemoryManager {
 				throw new IllegalStateException("Memory manager has been shut down.");
 			}
 
-			// since concurrent modifications to the collection
-			// can disturb the release, we need to try potentially
-			// multiple times
-			boolean successfullyReleased = false;
-			do {
-				final Iterator<T> segmentsIterator = segments.iterator();
+			final Iterator<T> segmentsIterator = segments.iterator();
+			
+			AbstractInvokable lastOwner = null;
+			Set<DefaultMemorySegment> segsForOwner = null;
 
-				AbstractInvokable lastOwner = null;
-				Set<DefaultMemorySegment> segsForOwner = null;
-
+			// go over all segments
+			while (segmentsIterator.hasNext()) {
+				
+				final MemorySegment seg = segmentsIterator.next();
+				if (seg.isFreed()) {
+					continue;
+				}
+				
+				final DefaultMemorySegment defSeg = (DefaultMemorySegment) seg;
+				final AbstractInvokable owner = defSeg.owner;
+				
 				try {
-					// go over all segments
-					while (segmentsIterator.hasNext()) {
-
-						final MemorySegment seg = segmentsIterator.next();
-						if (seg == null || seg.isFreed()) {
-							continue;
-						}
-
-						final DefaultMemorySegment defSeg = (DefaultMemorySegment) seg;
-						final AbstractInvokable owner = defSeg.owner;
-
-						try {
-							// get the list of segments by this owner only if it is a different owner than for
-							// the previous one (or it is the first segment)
-							if (lastOwner != owner) {
-								lastOwner = owner;
-								segsForOwner = this.allocatedSegments.get(owner);
-							}
-
-							// remove the segment from the list
-							if (segsForOwner != null) {
-								segsForOwner.remove(defSeg);
-								if (segsForOwner.isEmpty()) {
-									this.allocatedSegments.remove(owner);
-								}
-							}
-						} catch (Throwable t) {
-							LOG.error("Error removing book-keeping reference to allocated memory segment.", t);
-						} finally {
-							// release the memory in any case
-							byte[] buffer = defSeg.destroy();
-							this.freeSegments.add(buffer);
+					// get the list of segments by this owner only if it is a different owner than for
+					// the previous one (or it is the first segment)
+					if (lastOwner != owner) {
+						lastOwner = owner;
+						segsForOwner = this.allocatedSegments.get(owner);
+					}
+					
+					// remove the segment from the list
+					if (segsForOwner != null) {
+						segsForOwner.remove(defSeg);
+						if (segsForOwner.isEmpty()) {
+							this.allocatedSegments.remove(owner);
 						}
 					}
-
-					segments.clear();
-
-					// the only way to exit the loop
-					successfullyReleased = true;
 				}
-				catch (ConcurrentModificationException e) {
-					// this may happen in the case where an asynchronous
-					// call releases the memory. fall through the loop and try again
+				catch (Throwable t) {
+					LOG.error("Error removing book-keeping reference to allocated memory segment.", t);
 				}
-			} while (!successfullyReleased);
+				finally {
+					// release the memory in any case
+					byte[] buffer = defSeg.destroy();
+					this.freeSegments.add(buffer);
+				}
+			}
+			
+			segments.clear();
 		}
 		// -------------------- END CRITICAL SECTION -------------------
 	}
@@ -394,7 +383,7 @@ public class DefaultMemoryManager implements MemoryManager {
 	
 	// ------------------------------------------------------------------------
 	
-	private int getNumPages(long numBytes) {
+	private final int getNumPages(long numBytes) {
 		if (numBytes < 0) {
 			throw new IllegalArgumentException("The number of bytes to allocate must not be negative.");
 		}
@@ -403,11 +392,11 @@ public class DefaultMemoryManager implements MemoryManager {
 		if (numPages <= Integer.MAX_VALUE) {
 			return (int) numPages;
 		} else {
-			throw new IllegalArgumentException("The given number of bytes corresponds to more than MAX_INT pages.");
+			throw new IllegalArgumentException("The given number of bytes correstponds to more than MAX_INT pages.");
 		}
 	}
 
-	private int getRelativeNumPages(double fraction){
+	private final int getRelativeNumPages(double fraction){
 		if (fraction <= 0 || fraction > 1) {
 			throw new IllegalArgumentException("The fraction of memory to allocate must within (0, 1].");
 		}
